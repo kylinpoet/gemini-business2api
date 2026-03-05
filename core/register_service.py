@@ -205,6 +205,10 @@ class RegisterService(BaseTaskService[RegisterTask]):
             log_cb("error", f"❌ {temp_mail_provider} 邮箱注册失败")
             return {"success": False, "error": f"{temp_mail_provider} 注册失败"}
 
+        if not hasattr(client, 'email') or not client.email:
+            log_cb("error", f"❌ {temp_mail_provider} 邮箱地址未生成")
+            return {"success": False, "error": f"{temp_mail_provider} 邮箱地址未生成"}
+
         log_cb("info", f"✅ 邮箱注册成功: {client.email}")
 
         browser_mode = config.basic.browser_mode
@@ -225,9 +229,9 @@ class RegisterService(BaseTaskService[RegisterTask]):
                 try:
                     import httpx
                     proxies = {"http://": current_node_url, "https://": current_node_url}
-                    with httpx.Client(proxies=proxies, timeout=10) as client:
+                    with httpx.Client(proxies=proxies, timeout=10) as http_client:
                         # 测试1: 代理连接
-                        resp = client.get("https://www.google.com/generate_204")
+                        resp = http_client.get("https://www.google.com/generate_204")
                         if resp.status_code == 204:
                             log_cb("info", f"✅ 代理连接成功")
                         else:
@@ -236,7 +240,7 @@ class RegisterService(BaseTaskService[RegisterTask]):
 
                         # 测试2: 验证当前 IP（确认节点生效）
                         try:
-                            ip_resp = client.get("https://api.ipify.org?format=json", timeout=5)
+                            ip_resp = http_client.get("https://api.ipify.org?format=json", timeout=5)
                             if ip_resp.status_code == 200:
                                 proxy_ip = ip_resp.json().get("ip", "未知")
                                 log_cb("info", f"✅ 当前代理 IP: {proxy_ip}")
@@ -273,19 +277,22 @@ class RegisterService(BaseTaskService[RegisterTask]):
             result = automation.login_and_extract(client.email, client, is_new_account=True)
         except Exception as exc:
             log_cb("error", f"❌ 自动登录异常: {exc}")
-            if current_node:
-                node_manager.record_node_fail(node_manager._current_node_id)
+            if current_node and node_manager._stats_tracker:
+                node_manager._stats_tracker.record(current_node, "other")
             return {"success": False, "error": str(exc)}
 
         if not result.get("success"):
             error = result.get("error", "自动化流程失败")
             log_cb("error", f"❌ 自动登录失败: {error}")
-            if current_node:
-                node_manager.record_node_fail(node_manager._current_node_id)
+            if current_node and node_manager._stats_tracker:
+                if "403" in error or "banned" in error.lower() or "risk" in error.lower():
+                    node_manager._stats_tracker.record(current_node, "risk_control")
+                else:
+                    node_manager._stats_tracker.record(current_node, "other")
             return {"success": False, "error": error}
 
-        if current_node:
-            node_manager.record_node_success(node_manager._current_node_id)
+        if current_node and node_manager._stats_tracker:
+            node_manager._stats_tracker.record(current_node, "success")
 
         log_cb("info", "✅ Gemini 登录成功，正在保存配置...")
 

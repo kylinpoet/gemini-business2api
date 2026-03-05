@@ -23,7 +23,8 @@
         </label>
         <div class="flex items-center gap-2">
           <span class="text-sm text-muted-foreground">端口:</span>
-          <input v-model.number="proxyControl.port" @change="saveProxyControl" type="number" min="1024" max="65535" class="w-24 rounded-lg border border-input bg-background px-3 py-1 text-sm" />
+          <input v-model.number="proxyControl.port" @change="onPortChange" type="number" min="1024" max="65535" class="w-24 rounded-lg border border-input bg-background px-3 py-1 text-sm" />
+          <span class="text-xs text-amber-600">⚠️ 修改后需重启程序生效</span>
         </div>
       </div>
     </section>
@@ -451,14 +452,42 @@ async function loadProxyControl() {
 
 async function saveProxyControl() {
   try {
-    await fetch('/api/admin/proxy-control', {
+    let hasSystemProxy = false
+    // 如果启用节点代理，先检查并清空系统代理
+    if (proxyControl.master_enabled) {
+      const settingsRes = await fetch('/api/admin/settings')
+      const settings = await settingsRes.json()
+      hasSystemProxy = !!(settings.basic?.proxy_for_auth || settings.basic?.proxy_for_chat)
+
+      if (hasSystemProxy) {
+        // 自动清空系统代理并保存
+        settings.basic.proxy_for_auth = ''
+        settings.basic.proxy_for_chat = ''
+        await fetch('/api/admin/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings),
+        })
+      }
+    }
+
+    const res = await fetch('/api/admin/proxy-control', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(proxyControl),
     })
+
+    if (res.ok && proxyControl.master_enabled && hasSystemProxy) {
+      alert('节点代理已启用，系统代理已自动关闭')
+    }
   } catch (e) {
     console.error(e)
   }
+}
+
+function onPortChange() {
+  saveProxyControl()
+  alert('端口已保存，需要重启程序后生效')
 }
 
 async function importSubscription() {

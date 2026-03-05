@@ -21,6 +21,7 @@ from core.database import stats_db
 # ---------- 数据目录配置 ----------
 DATA_DIR = "./data"
 logger_prefix = "[LOCAL]"
+PATH_PREFIX = ""  # 路径前缀，用于部署在子路径时
 
 # 确保数据目录存在
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -1422,6 +1423,11 @@ async def admin_stats(request: Request, time_range: str = "24h"):
     trend_data = await stats_db.get_stats_by_time_range(time_range)
     success_count, failed_count = await stats_db.get_total_counts()
 
+    # 获取节点统计数据
+    node_stats = {}
+    if node_manager._stats_tracker:
+        node_stats = node_manager._stats_tracker.get_chart_data()
+
     return {
         "total_accounts": total_accounts,
         "active_accounts": active_accounts,
@@ -1430,7 +1436,8 @@ async def admin_stats(request: Request, time_range: str = "24h"):
         "idle_accounts": idle_accounts,
         "success_count": success_count,
         "failed_count": failed_count,
-        "trend": trend_data
+        "trend": trend_data,
+        "node_stats": node_stats
     }
 
 @app.get("/admin/accounts")
@@ -1699,7 +1706,7 @@ async def admin_bulk_disable_accounts(request: Request, account_ids: list[str]):
     return {"status": "success", "success_count": success_count, "errors": errors}
 
 # ---------- Auth endpoints (API) ----------
-@app.get("/admin/settings")
+@app.get("/api/admin/settings")
 @require_login()
 async def admin_get_settings(request: Request):
     """获取系统设置"""
@@ -1774,7 +1781,7 @@ async def admin_get_settings(request: Request):
         }
     }
 
-@app.put("/admin/settings")
+@app.put("/api/admin/settings")
 @require_login()
 async def admin_update_settings(request: Request, new_settings: dict = Body(...)):
     """更新系统设置"""
@@ -1848,6 +1855,20 @@ async def admin_update_settings(request: Request, new_settings: dict = Body(...)
         quota_limits.setdefault("images_daily_limit", config.quota_limits.images_daily_limit)
         quota_limits.setdefault("videos_daily_limit", config.quota_limits.videos_daily_limit)
         new_settings["quota_limits"] = quota_limits
+
+        # 代理互斥：启用系统代理时自动关闭节点代理
+        proxy_for_auth = basic.get("proxy_for_auth", "").strip()
+        proxy_for_chat = basic.get("proxy_for_chat", "").strip()
+        has_system_proxy = bool(proxy_for_auth or proxy_for_chat)
+
+        if has_system_proxy:
+            proxy_control = load_proxy_control()
+            if proxy_control.get("master_enabled", False):
+                # 自动关闭节点代理
+                proxy_control["master_enabled"] = False
+                proxy_control["auth_enabled"] = False
+                proxy_control["chat_enabled"] = False
+                save_proxy_control(proxy_control)
 
         # 保存旧配置用于对比
         old_proxy_for_auth = PROXY_FOR_AUTH
@@ -3443,6 +3464,16 @@ async def rotate_node_endpoint(request: Request):
     return {"success": True, "node": node_name}
 
 
+def save_proxy_control(data: dict):
+    """保存代理控制状态"""
+    import json
+    import os
+    os.makedirs("data", exist_ok=True)
+    control_file = "data/proxy_control.json"
+    with open(control_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
 @app.get("/api/admin/proxy-control")
 @require_login()
 async def get_proxy_control(request: Request):
@@ -3465,6 +3496,18 @@ async def update_proxy_control(request: Request, body: dict = Body(...)):
     """更新代理控制状态"""
     import json
     import os
+
+    # 代理互斥：启用节点代理时自动清空系统代理
+    master_enabled = body.get("master_enabled", False)
+    if master_enabled:
+        proxy_for_auth = (config.basic.proxy_for_auth or "").strip()
+        proxy_for_chat = (config.basic.proxy_for_chat or "").strip()
+        if proxy_for_auth or proxy_for_chat:
+            # 自动清空系统代理（通过更新配置）
+            config.basic.proxy_for_auth = ""
+            config.basic.proxy_for_chat = ""
+            # 这里不需要保存配置文件，因为前端会处理
+
     os.makedirs("data", exist_ok=True)
     control_file = "data/proxy_control.json"
     try:
@@ -3503,6 +3546,16 @@ async def get_clash_runtime_config(request: Request):
         content = node_manager._clash_manager.get_runtime_config()
         return {"content": content}
     return {"content": ""}
+
+
+# SPA fallback: 所有非 API 路由返回 index.html
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    """处理所有前端路由，返回 index.html"""
+    index_path = os.path.join("static", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    raise HTTPException(404, "Not Found")
 
 
 if __name__ == "__main__":
