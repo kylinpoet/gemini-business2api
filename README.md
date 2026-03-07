@@ -339,6 +339,33 @@ docker compose up -d
 
 ---
 
+## 🌿 分支使用指南
+
+为避免部署混乱，建议按场景选择分支：
+
+- `main`：稳定主线（推荐生产部署 API 与前端面板）
+- `beta`：新功能预发布线（会先于 main 更新）
+- `refresh-worker`：独立刷新服务分支（适合本地运行刷新、远端部署 API）
+- `clash-proxy`：Clash 代理场景分支（用于代理网络环境下的注册/刷新）
+
+推荐组合：
+
+- 云端部署 `main`/`beta` 提供 API 与管理面板
+- 本地部署 `refresh-worker` 负责账号注册与刷新
+- 需要 Clash 代理网络策略时使用 `clash-proxy`
+
+### Clash 代理场景示例
+
+```bash
+git clone -b clash-proxy https://github.com/Dreamy-rain/gemini-business2api.git gemini-business2api-clash
+cd gemini-business2api-clash
+cp .env.example .env
+# 编辑 .env 与面板代理配置后启动
+docker compose up -d
+```
+
+---
+
 ## 🌐 Socks5 免费代理池
 
 自动注册/刷新账号时可配置代理以提高成功率。推荐使用免费 Socks5 代理池：

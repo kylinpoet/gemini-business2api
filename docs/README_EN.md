@@ -337,6 +337,33 @@ This service reads accounts from the database and runs scheduled credential refr
 
 ---
 
+## 🌿 Branch Guide
+
+To keep deployment logic clear, choose branches by scenario:
+
+- `main`: stable line (recommended for production API + admin panel)
+- `beta`: pre-release line (new features land here first)
+- `refresh-worker`: standalone refresh service branch (ideal for local refresh worker + remote API)
+- `clash-proxy`: Clash proxy branch (for registration/refresh in proxy-constrained networks)
+
+Recommended setup:
+
+- Deploy `main`/`beta` on cloud for API + admin panel
+- Run `refresh-worker` locally for account registration/refresh
+- Use `clash-proxy` when your network path relies on Clash proxy routing
+
+### Clash Proxy Deployment Example
+
+```bash
+git clone -b clash-proxy https://github.com/Dreamy-rain/gemini-business2api.git gemini-business2api-clash
+cd gemini-business2api-clash
+cp .env.example .env
+# Edit .env and proxy settings in the admin panel, then start
+docker compose up -d
+```
+
+---
+
 ## 🌐 Socks5 Free Proxy Pool
 
 Configure a proxy when auto-registering/refreshing accounts to improve success rates:
