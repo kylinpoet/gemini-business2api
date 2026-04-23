@@ -61,6 +61,10 @@ export interface AccountConfigItem {
   mail_jwt_token?: string
   mail_verify_ssl?: boolean
   mail_domain?: string
+  disabled?: boolean
+  disabled_reason?: string | null
+  trial_end?: string | null
+  [key: string]: unknown
 }
 
 export interface AccountsConfigResponse {
@@ -78,20 +82,107 @@ export interface Stats {
   requests_per_hour: number
 }
 
+export interface RefreshSettings {
+  proxy_for_auth?: string
+  duckmail: {
+    base_url?: string
+    api_key?: string
+    verify_ssl?: boolean
+  }
+  temp_mail_provider?: 'duckmail' | 'moemail' | 'freemail' | 'gptmail' | 'cfmail'
+  moemail: {
+    base_url?: string
+    api_key?: string
+    domain?: string
+  }
+  freemail: {
+    base_url?: string
+    jwt_token?: string
+    verify_ssl?: boolean
+    domain?: string
+  }
+  mail_proxy_enabled?: boolean
+  gptmail: {
+    base_url?: string
+    api_key?: string
+    verify_ssl?: boolean
+    domain?: string
+  }
+  cfmail: {
+    base_url?: string
+    api_key?: string
+    verify_ssl?: boolean
+    domain?: string
+  }
+  browser_mode?: 'normal' | 'silent' | 'headless'
+  browser_headless?: boolean
+  refresh_window_hours?: number
+  register_domain?: string
+  register_default_count?: number
+  auto_refresh_accounts_seconds?: number
+  scheduled_refresh_enabled?: boolean
+  scheduled_refresh_interval_minutes?: number
+  scheduled_refresh_cron?: string
+  verification_code_resend_count?: number
+  refresh_batch_size?: number
+  refresh_batch_interval_minutes?: number
+  refresh_cooldown_hours?: number
+  delete_expired_accounts?: boolean
+  auto_register_enabled?: boolean
+  min_account_count?: number
+}
+
 export interface Settings {
   basic: {
     api_key?: string
     base_url?: string
     proxy_for_chat?: string
     image_expire_hours?: number
+    proxy_for_auth?: string
+    duckmail_base_url?: string
+    duckmail_api_key?: string
+    duckmail_verify_ssl?: boolean
+    temp_mail_provider?: 'duckmail' | 'moemail' | 'freemail' | 'gptmail' | 'cfmail'
+    moemail_base_url?: string
+    moemail_api_key?: string
+    moemail_domain?: string
+    freemail_base_url?: string
+    freemail_jwt_token?: string
+    freemail_verify_ssl?: boolean
+    freemail_domain?: string
+    mail_proxy_enabled?: boolean
+    gptmail_base_url?: string
+    gptmail_api_key?: string
+    gptmail_verify_ssl?: boolean
+    gptmail_domain?: string
+    cfmail_base_url?: string
+    cfmail_api_key?: string
+    cfmail_verify_ssl?: boolean
+    cfmail_domain?: string
+    browser_mode?: 'normal' | 'silent' | 'headless'
+    browser_headless?: boolean
+    refresh_window_hours?: number
+    register_domain?: string
+    register_default_count?: number
   }
   retry: {
     max_account_switch_tries: number
+    rate_limit_cooldown_seconds?: number
     text_rate_limit_cooldown_seconds: number
     images_rate_limit_cooldown_seconds: number
     videos_rate_limit_cooldown_seconds: number
     session_cache_ttl_seconds: number
-    auto_refresh_accounts_seconds: number
+    auto_refresh_accounts_seconds?: number
+    scheduled_refresh_enabled?: boolean
+    scheduled_refresh_interval_minutes?: number
+    scheduled_refresh_cron?: string
+    verification_code_resend_count?: number
+    refresh_batch_size?: number
+    refresh_batch_interval_minutes?: number
+    refresh_cooldown_hours?: number
+    delete_expired_accounts?: boolean
+    auto_register_enabled?: boolean
+    min_account_count?: number
   }
   public_display: {
     logo_url?: string
@@ -108,6 +199,7 @@ export interface Settings {
   session: {
     expire_hours: number
   }
+  refresh_settings: RefreshSettings
   quota_limits: {
     enabled: boolean
     text_daily_limit: number

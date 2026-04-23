@@ -7,15 +7,23 @@ from dotenv import load_dotenv
 
 import httpx
 import aiofiles
-from fastapi import FastAPI, HTTPException, Header, Request, Body, Form, UploadFile, File
+from fastapi import FastAPI, HTTPException, Header, Request, Form, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 from util.streaming_parser import parse_json_array_stream_async
 from collections import deque
 from threading import Lock
 from core.database import stats_db
+from app.api.routers import (
+    AccountRouteDeps,
+    SettingsRouteDeps,
+    SystemRouteDeps,
+    register_account_routes,
+    register_settings_routes,
+    register_system_routes,
+)
+from app.api.schemas import ChatRequest, ImageGenerationRequest, Message
 
 # ---------- 数据目录配置 ----------
 DATA_DIR = "./data"
@@ -345,7 +353,6 @@ def get_tools_spec(model_name: str) -> dict:
 # ---------- 重试配置 ----------
 MAX_ACCOUNT_SWITCH_TRIES = config.retry.max_account_switch_tries
 SESSION_CACHE_TTL_SECONDS = config.retry.session_cache_ttl_seconds
-AUTO_REFRESH_ACCOUNTS_SECONDS = config.retry.auto_refresh_accounts_seconds
 
 def build_retry_policy() -> RetryPolicy:
     return RetryPolicy(
@@ -533,29 +540,6 @@ if os.path.exists(os.path.join("static", "assets")):
 if os.path.exists(os.path.join("static", "vendor")):
     app.mount("/vendor", StaticFiles(directory=os.path.join("static", "vendor")), name="vendor")
 
-@app.get("/")
-async def serve_frontend_index():
-    index_path = os.path.join("static", "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    raise HTTPException(404, "Not Found")
-
-@app.get("/logo.svg")
-async def serve_logo():
-    logo_path = os.path.join("static", "logo.svg")
-    if os.path.exists(logo_path):
-        return FileResponse(logo_path)
-    raise HTTPException(404, "Not Found")
-
-@app.get("/health")
-async def health_check():
-    """健康检查端点，用于 Docker HEALTHCHECK"""
-    return {"status": "ok"}
-
-@app.get("/public/version")
-async def public_version():
-    return get_version_info()
-
 # ---------- Session 中间件配置 ----------
 from starlette.middleware.sessions import SessionMiddleware
 app.add_middleware(
@@ -603,77 +587,6 @@ logger.info(f"[SYSTEM] 视频静态服务已启用: /videos/ -> {VIDEO_DIR}")
 
 # ---------- 后台任务启动 ----------
 
-# 全局变量：记录上次检测到的账号更新时间（用于自动刷新检测）
-_last_known_accounts_version: float | None = None
-
-
-async def auto_refresh_accounts_task():
-    """后台任务：定期检查数据库中的账号变化，自动刷新"""
-    global multi_account_mgr, _last_known_accounts_version
-
-    # 初始化：记录当前账号更新时间
-    if storage.is_database_enabled() and not os.environ.get("ACCOUNTS_CONFIG"):
-        _last_known_accounts_version = await asyncio.to_thread(
-            storage.get_accounts_updated_at_sync
-        )
-
-    while True:
-        try:
-            # 获取配置的刷新间隔（支持热更新）
-            refresh_interval = config_manager.auto_refresh_accounts_seconds
-            if refresh_interval <= 0:
-                # 自动刷新已禁用，等待一段时间后再检查配置
-                await asyncio.sleep(60)
-                continue
-
-            await asyncio.sleep(refresh_interval)
-
-            # 环境变量优先时无需自动刷新
-            if os.environ.get("ACCOUNTS_CONFIG"):
-                continue
-
-            # 检查数据库是否启用
-            if not storage.is_database_enabled():
-                continue
-
-            # 获取数据库中的账号更新时间
-            db_version = await asyncio.to_thread(storage.get_accounts_updated_at_sync)
-            if db_version is None:
-                continue
-
-            # 比较更新时间变化
-            if _last_known_accounts_version != db_version:
-                logger.info("[AUTO-REFRESH] 检测到账号变化，正在自动刷新...")
-
-                # 重新加载账号配置
-                multi_account_mgr = _reload_accounts(
-                    multi_account_mgr,
-                    http_client,
-                    USER_AGENT,
-                    RETRY_POLICY,
-                    SESSION_CACHE_TTL_SECONDS,
-                    global_stats
-                )
-
-                # Fix inconsistent state: accounts that are no longer expired/disabled
-                # and have no quota cooldowns should be marked available
-                for acc_id, acc_mgr in multi_account_mgr.accounts.items():
-                    if not acc_mgr.config.is_expired() and not acc_mgr.config.disabled and not acc_mgr.is_available:
-                        if not acc_mgr.quota_cooldowns:
-                            acc_mgr.is_available = True
-                            logger.info(f"[AUTO-REFRESH] 账号 {acc_id} 状态已修正为可用")
-
-                _last_known_accounts_version = db_version
-                logger.info(f"[AUTO-REFRESH] 账号刷新完成，当前账号数: {len(multi_account_mgr.accounts)}")
-
-        except asyncio.CancelledError:
-            logger.info("[AUTO-REFRESH] 自动刷新任务已停止")
-            break
-        except Exception as e:
-            logger.error(f"[AUTO-REFRESH] 自动刷新任务异常: {type(e).__name__}: {str(e)[:100]}")
-            await asyncio.sleep(60)  # 出错后等待60秒再重试
-
-
 @app.on_event("startup")
 async def startup_event():
     """应用启动时初始化后台任务"""
@@ -705,15 +618,6 @@ async def startup_event():
     # 启动数据库清理任务
     asyncio.create_task(cleanup_database_task())
     logger.info("[SYSTEM] 数据库清理任务已启动（每天清理一次，保留30天数据）")
-
-    # 启动自动刷新账号任务（仅数据库模式有效）
-    if os.environ.get("ACCOUNTS_CONFIG"):
-        logger.info("[SYSTEM] 自动刷新账号已跳过（使用 ACCOUNTS_CONFIG）")
-    elif storage.is_database_enabled() and AUTO_REFRESH_ACCOUNTS_SECONDS > 0:
-        asyncio.create_task(auto_refresh_accounts_task())
-        logger.info(f"[SYSTEM] 自动刷新账号任务已启动（间隔: {AUTO_REFRESH_ACCOUNTS_SECONDS}秒）")
-    elif storage.is_database_enabled():
-        logger.info("[SYSTEM] 自动刷新账号功能已禁用（配置为0）")
 
     # 启动冷却状态定期保存任务（每5分钟保存一次）
     if storage.is_database_enabled():
@@ -823,90 +727,6 @@ def _scan_media_files() -> list:
     # 按创建时间倒序
     files.sort(key=lambda x: x["mtime"], reverse=True)
     return files
-
-
-@app.get("/admin/gallery")
-@require_login()
-async def admin_get_gallery(request: Request):
-    """获取图片画廊列表"""
-    files = await asyncio.to_thread(_scan_media_files)
-    total_size = sum(f["size"] for f in files)
-
-    return {
-        "files": files,
-        "total": len(files),
-        "total_size": total_size,
-        "expire_hours": config.basic.image_expire_hours,
-    }
-
-
-@app.delete("/admin/gallery/{filename:path}")
-@require_login()
-async def admin_delete_gallery_file(request: Request, filename: str):
-    """删除画廊中的单个文件"""
-    # 安全校验：防止路径穿越
-    safe_name = os.path.basename(filename)
-    if safe_name != filename or ".." in filename:
-        raise HTTPException(400, "非法文件名")
-
-    # 在 images 和 videos 目录中查找
-    for directory in [IMAGE_DIR, VIDEO_DIR]:
-        filepath = os.path.join(directory, safe_name)
-        if os.path.isfile(filepath):
-            try:
-                os.remove(filepath)
-                logger.info(f"[GALLERY] 已删除文件: {safe_name}")
-                return {"success": True, "message": f"已删除 {safe_name}"}
-            except Exception as e:
-                raise HTTPException(500, f"删除失败: {str(e)}")
-
-    raise HTTPException(404, "文件不存在")
-
-
-@app.post("/admin/gallery/cleanup")
-@require_login()
-async def admin_cleanup_expired(request: Request):
-    """立即清理过期媒体文件"""
-    expire_hours = config.basic.image_expire_hours
-    if expire_hours < 0:
-        return {"success": True, "deleted": 0, "deleted_images": 0, "deleted_videos": 0, "message": "当前设置为永不删除"}
-
-    now = time.time()
-    deleted_images = 0
-    deleted_videos = 0
-    video_exts = (".mp4", ".webm", ".mov")
-
-    for directory, is_video_dir in [(IMAGE_DIR, False), (VIDEO_DIR, True)]:
-        if not os.path.isdir(directory):
-            continue
-        for filename in os.listdir(directory):
-            filepath = os.path.join(directory, filename)
-            if not os.path.isfile(filepath):
-                continue
-            try:
-                mtime = os.path.getmtime(filepath)
-                age_hours = (now - mtime) / 3600
-                if age_hours > expire_hours:
-                    os.remove(filepath)
-                    ext = os.path.splitext(filename)[1].lower()
-                    if is_video_dir or ext in video_exts:
-                        deleted_videos += 1
-                    else:
-                        deleted_images += 1
-            except Exception:
-                continue
-
-    deleted_count = deleted_images + deleted_videos
-    if deleted_count > 0:
-        logger.info(f"[GALLERY] 手动清理了 {deleted_count} 个过期媒体文件（图片: {deleted_images}, 视频: {deleted_videos}）")
-
-    return {
-        "success": True,
-        "deleted": deleted_count,
-        "deleted_images": deleted_images,
-        "deleted_videos": deleted_videos,
-        "message": f"已清理 {deleted_count} 个过期文件" if deleted_count > 0 else "没有过期文件需要清理",
-    }
 
 
 async def cleanup_expired_media_task():
@@ -1152,26 +972,128 @@ def get_sanitized_logs(limit: int = 100) -> list:
     sanitized.sort(key=lambda x: x["start_time"], reverse=True)
     return sanitized[:limit]
 
-class Message(BaseModel):
-    role: str
-    content: Union[str, List[Dict[str, Any]]]
 
-class ChatRequest(BaseModel):
-    model: str = "gemini-auto"
-    messages: List[Message]
-    stream: bool = False
-    temperature: Optional[float] = 0.7
-    top_p: Optional[float] = 1.0
+def _set_multi_account_mgr(manager) -> None:
+    global multi_account_mgr
+    multi_account_mgr = manager
 
-class ImageGenerationRequest(BaseModel):
-    """OpenAI /v1/images/generations 请求格式"""
-    prompt: str
-    model: str = "gemini-imagen"
-    n: Optional[int] = 1
-    size: Optional[str] = "1024x1024"
-    response_format: Optional[str] = None  # "url" or "b64_json"，None 表示使用系统配置
-    quality: Optional[str] = "standard"  # "standard" or "hd"
-    style: Optional[str] = "natural"  # "natural" or "vivid"
+
+def _get_runtime_settings_state() -> dict[str, Any]:
+    return {
+        "api_key": API_KEY,
+        "proxy_for_chat": PROXY_FOR_CHAT,
+        "base_url": BASE_URL,
+        "logo_url": LOGO_URL,
+        "chat_url": CHAT_URL,
+        "image_generation_enabled": IMAGE_GENERATION_ENABLED,
+        "image_generation_models": IMAGE_GENERATION_MODELS,
+        "max_account_switch_tries": MAX_ACCOUNT_SWITCH_TRIES,
+        "retry_policy": RETRY_POLICY,
+        "session_cache_ttl_seconds": SESSION_CACHE_TTL_SECONDS,
+        "session_expire_hours": SESSION_EXPIRE_HOURS,
+        "http_client": http_client,
+        "http_client_chat": http_client_chat,
+    }
+
+
+def _apply_runtime_settings_state(state: dict[str, Any]) -> None:
+    global API_KEY, PROXY_FOR_CHAT, BASE_URL, LOGO_URL, CHAT_URL
+    global IMAGE_GENERATION_ENABLED, IMAGE_GENERATION_MODELS
+    global MAX_ACCOUNT_SWITCH_TRIES, RETRY_POLICY
+    global SESSION_CACHE_TTL_SECONDS
+    global SESSION_EXPIRE_HOURS, http_client, http_client_chat
+
+    API_KEY = state["api_key"]
+    PROXY_FOR_CHAT = state["proxy_for_chat"]
+    BASE_URL = state["base_url"]
+    LOGO_URL = state["logo_url"]
+    CHAT_URL = state["chat_url"]
+    IMAGE_GENERATION_ENABLED = state["image_generation_enabled"]
+    IMAGE_GENERATION_MODELS = state["image_generation_models"]
+    MAX_ACCOUNT_SWITCH_TRIES = state["max_account_switch_tries"]
+    RETRY_POLICY = state["retry_policy"]
+    SESSION_CACHE_TTL_SECONDS = state["session_cache_ttl_seconds"]
+    SESSION_EXPIRE_HOURS = state["session_expire_hours"]
+    http_client = state["http_client"]
+    http_client_chat = state["http_client_chat"]
+
+
+def _create_http_client_for_proxy(proxy: Optional[str]):
+    return httpx.AsyncClient(
+        proxy=(proxy or None),
+        verify=False,
+        http2=False,
+        timeout=httpx.Timeout(TIMEOUT_SECONDS, connect=60.0),
+        limits=httpx.Limits(
+            max_keepalive_connections=100,
+            max_connections=200,
+        ),
+    )
+
+register_system_routes(
+    app,
+    SystemRouteDeps(
+        admin_key=lambda: ADMIN_KEY,
+        get_config=lambda: config,
+        get_global_stats=lambda: global_stats,
+        get_log_buffer=lambda: log_buffer,
+        get_multi_account_mgr=lambda: multi_account_mgr,
+        get_sanitized_logs=get_sanitized_logs,
+        get_update_status=get_update_status,
+        get_version_info=get_version_info,
+        image_dir=IMAGE_DIR,
+        log_lock=log_lock,
+        logger=logger,
+        login_user=login_user,
+        logout_user=logout_user,
+        require_login=require_login,
+        save_stats=save_stats,
+        scan_media_files=_scan_media_files,
+        stats_db=stats_db,
+        stats_lock=stats_lock,
+        uptime_tracker=uptime_tracker,
+        video_dir=VIDEO_DIR,
+    ),
+)
+
+register_account_routes(
+    app,
+    AccountRouteDeps(
+        bulk_delete_accounts=_bulk_delete_accounts,
+        bulk_update_account_disabled_status=_bulk_update_account_disabled_status,
+        delete_account=_delete_account,
+        format_account_expiration=format_account_expiration,
+        get_global_stats=lambda: global_stats,
+        get_http_client=lambda: http_client,
+        get_multi_account_mgr=lambda: multi_account_mgr,
+        get_retry_policy=lambda: RETRY_POLICY,
+        get_session_cache_ttl_seconds=lambda: SESSION_CACHE_TTL_SECONDS,
+        get_user_agent=lambda: USER_AGENT,
+        load_accounts_from_source=load_accounts_from_source,
+        logger=logger,
+        require_login=require_login,
+        save_account_cooldown_state=account.save_account_cooldown_state,
+        set_multi_account_mgr=_set_multi_account_mgr,
+        update_account_disabled_status=_update_account_disabled_status,
+        update_accounts_config=_update_accounts_config,
+    ),
+)
+
+register_settings_routes(
+    app,
+    SettingsRouteDeps(
+        apply_runtime_state=_apply_runtime_settings_state,
+        build_retry_policy=build_retry_policy,
+        config_manager=config_manager,
+        create_http_client=_create_http_client_for_proxy,
+        get_config=lambda: config,
+        get_multi_account_mgr=lambda: multi_account_mgr,
+        get_runtime_state=_get_runtime_settings_state,
+        logger=logger,
+        parse_proxy_setting=parse_proxy_setting,
+        require_login=require_login,
+    ),
+)
 
 def create_chunk(id: str, created: int, model: str, delta: dict, finish_reason: Union[str, None]) -> str:
     chunk = {
@@ -1188,512 +1110,6 @@ def create_chunk(id: str, created: int, model: str, delta: dict, finish_reason: 
         "system_fingerprint": None  # OpenAI 标准字段（可选）
     }
     return json.dumps(chunk)
-# ---------- Auth endpoints (API) ----------
-
-@app.post("/login")
-async def admin_login_post(request: Request, admin_key: str = Form(...)):
-    """Admin login (API)"""
-    if admin_key == ADMIN_KEY:
-        login_user(request)
-        logger.info("[AUTH] Admin login success")
-        return {"success": True}
-    logger.warning("[AUTH] Login failed - invalid key")
-    raise HTTPException(401, "Invalid key")
-
-
-@app.post("/logout")
-@require_login(redirect_to_login=False)
-async def admin_logout(request: Request):
-    """Admin logout (API)"""
-    logout_user(request)
-    logger.info("[AUTH] Admin logout")
-    return {"success": True}
-
-
-
-@app.get("/admin/version-check")
-@require_login()
-async def admin_version_check(request: Request):
-    return get_update_status()
-
-
-@app.get("/admin/stats")
-@require_login()
-async def admin_stats(request: Request, time_range: str = "24h"):
-    """
-    获取统计数据
-
-    Args:
-        time_range: 时间范围 "24h", "7d", "30d"
-    """
-    now = time.time()
-
-    active_accounts = 0
-    failed_accounts = 0
-    rate_limited_accounts = 0
-    idle_accounts = 0
-
-    for account_manager in multi_account_mgr.accounts.values():
-        config = account_manager.config
-        cooldown_seconds, cooldown_reason = account_manager.get_cooldown_info()
-
-        # 判断账户状态
-        is_expired = config.is_expired()
-        is_manual_disabled = config.disabled
-        is_rate_limited = cooldown_seconds > 0 and cooldown_reason and "冷却" in cooldown_reason
-        is_failed = is_expired
-        is_active = (not is_failed) and (not is_manual_disabled) and (not is_rate_limited)
-
-        if is_rate_limited:
-            rate_limited_accounts += 1
-        elif is_failed:
-            failed_accounts += 1
-        elif is_active:
-            active_accounts += 1
-        else:
-            idle_accounts += 1
-
-    total_accounts = len(multi_account_mgr.accounts)
-
-    # 从数据库获取统计数据
-    trend_data = await stats_db.get_stats_by_time_range(time_range)
-    success_count, failed_count = await stats_db.get_total_counts()
-
-    return {
-        "total_accounts": total_accounts,
-        "active_accounts": active_accounts,
-        "failed_accounts": failed_accounts,
-        "rate_limited_accounts": rate_limited_accounts,
-        "idle_accounts": idle_accounts,
-        "success_count": success_count,
-        "failed_count": failed_count,
-        "trend": trend_data
-    }
-
-@app.get("/admin/accounts")
-@require_login()
-async def admin_get_accounts(request: Request):
-    """获取所有账户的状态信息"""
-    accounts_info = []
-    for account_id, account_manager in multi_account_mgr.accounts.items():
-        config = account_manager.config
-        remaining_hours = config.get_remaining_hours()
-        status, status_color, remaining_display = format_account_expiration(remaining_hours)
-        cooldown_seconds, cooldown_reason = account_manager.get_cooldown_info()
-        quota_status = account_manager.get_quota_status()
-
-        accounts_info.append({
-            "id": config.account_id,
-            "status": status,
-            "expires_at": config.expires_at or "未设置",
-            "remaining_hours": remaining_hours,
-            "remaining_display": remaining_display,
-            "is_available": account_manager.is_available,
-            "failure_count": account_manager.failure_count,
-            "disabled": config.disabled,
-            "disabled_reason": getattr(account_manager, 'disabled_reason', None) or getattr(config, 'disabled_reason', None),
-            "cooldown_seconds": cooldown_seconds,
-            "cooldown_reason": cooldown_reason,
-            "conversation_count": account_manager.conversation_count,
-            "session_usage_count": account_manager.session_usage_count,
-            "quota_status": quota_status,
-            "trial_end": config.trial_end,
-            "trial_days_remaining": config.get_trial_days_remaining(),
-        })
-
-    return {"total": len(accounts_info), "accounts": accounts_info}
-
-
-@app.get("/admin/accounts-config")
-@require_login()
-async def admin_get_config(request: Request):
-    """获取完整账户配置"""
-    try:
-        accounts_data = load_accounts_from_source()
-        return {"accounts": accounts_data}
-    except Exception as e:
-        logger.error(f"[CONFIG] 获取配置失败: {str(e)}")
-        raise HTTPException(500, f"获取失败: {str(e)}")
-
-@app.put("/admin/accounts-config")
-@require_login()
-async def admin_update_config(request: Request, accounts_data: list = Body(...)):
-    """更新整个账户配置"""
-    global multi_account_mgr
-    try:
-        multi_account_mgr = _update_accounts_config(
-            accounts_data, multi_account_mgr, http_client, USER_AGENT,
-            RETRY_POLICY,
-            SESSION_CACHE_TTL_SECONDS, global_stats
-        )
-        return {"status": "success", "message": "配置已更新", "account_count": len(multi_account_mgr.accounts)}
-    except Exception as e:
-        logger.error(f"[CONFIG] 更新配置失败: {str(e)}")
-        raise HTTPException(500, f"更新失败: {str(e)}")
-
-@app.delete("/admin/accounts/{account_id}")
-@require_login()
-async def admin_delete_account(request: Request, account_id: str):
-    """删除单个账户"""
-    global multi_account_mgr
-    try:
-        multi_account_mgr = _delete_account(
-            account_id, multi_account_mgr, http_client, USER_AGENT,
-            RETRY_POLICY,
-            SESSION_CACHE_TTL_SECONDS, global_stats
-        )
-        return {"status": "success", "message": f"账户 {account_id} 已删除", "account_count": len(multi_account_mgr.accounts)}
-    except Exception as e:
-        logger.error(f"[CONFIG] 删除账户失败: {str(e)}")
-        raise HTTPException(500, f"删除失败: {str(e)}")
-
-@app.put("/admin/accounts/bulk-delete")
-@require_login()
-async def admin_bulk_delete_accounts(request: Request, account_ids: list[str]):
-    """批量删除账户，单次最多50个"""
-    global multi_account_mgr
-
-    # 数量限制验证
-    if len(account_ids) > 50:
-        raise HTTPException(400, f"单次最多删除50个账户，当前请求 {len(account_ids)} 个")
-    if not account_ids:
-        raise HTTPException(400, "账户ID列表不能为空")
-
-    try:
-        multi_account_mgr, success_count, errors = _bulk_delete_accounts(
-            account_ids,
-            multi_account_mgr,
-            http_client,
-            USER_AGENT,
-            RETRY_POLICY,
-            SESSION_CACHE_TTL_SECONDS,
-            global_stats
-        )
-        return {"status": "success", "success_count": success_count, "errors": errors}
-    except Exception as e:
-        logger.error(f"[CONFIG] 批量删除账户失败: {str(e)}")
-        raise HTTPException(500, f"删除失败: {str(e)}")
-
-@app.put("/admin/accounts/{account_id}/disable")
-@require_login()
-async def admin_disable_account(request: Request, account_id: str):
-    """手动禁用账户"""
-    global multi_account_mgr
-    try:
-        multi_account_mgr = _update_account_disabled_status(
-            account_id, True, multi_account_mgr
-        )
-
-        # 立即保存当前状态到数据库，防止后台任务覆盖
-        if account_id in multi_account_mgr.accounts:
-            account_mgr = multi_account_mgr.accounts[account_id]
-            await account.save_account_cooldown_state(account_id, account_mgr)
-
-        return {"status": "success", "message": f"账户 {account_id} 已禁用", "account_count": len(multi_account_mgr.accounts)}
-    except Exception as e:
-        logger.error(f"[CONFIG] 禁用账户失败: {str(e)}")
-        raise HTTPException(500, f"禁用失败: {str(e)}")
-
-@app.put("/admin/accounts/{account_id}/enable")
-@require_login()
-async def admin_enable_account(request: Request, account_id: str):
-    """启用账户（同时重置冷却状态）"""
-    global multi_account_mgr
-    try:
-        multi_account_mgr = _update_account_disabled_status(
-            account_id, False, multi_account_mgr
-        )
-
-        # 重置运行时冷却状态（允许手动恢复冷却中的账户）
-        if account_id in multi_account_mgr.accounts:
-            account_mgr = multi_account_mgr.accounts[account_id]
-            account_mgr.quota_cooldowns = {}
-            logger.info(f"[CONFIG] 账户 {account_id} 冷却状态已重置")
-
-            # 立即保存清空的冷却状态到数据库，防止后台任务覆盖
-            await account.save_account_cooldown_state(account_id, account_mgr)
-
-        return {"status": "success", "message": f"账户 {account_id} 已启用", "account_count": len(multi_account_mgr.accounts)}
-    except Exception as e:
-        logger.error(f"[CONFIG] 启用账户失败: {str(e)}")
-        raise HTTPException(500, f"启用失败: {str(e)}")
-
-@app.put("/admin/accounts/bulk-enable")
-@require_login()
-async def admin_bulk_enable_accounts(request: Request, account_ids: list[str]):
-    """批量启用账户，单次最多50个"""
-    global multi_account_mgr
-    success_count, errors = _bulk_update_account_disabled_status(
-        account_ids, False, multi_account_mgr
-    )
-    # 重置运行时错误状态
-    for account_id in account_ids:
-        if account_id in multi_account_mgr.accounts:
-            account_mgr = multi_account_mgr.accounts[account_id]
-            account_mgr.quota_cooldowns = {}
-    return {"status": "success", "success_count": success_count, "errors": errors}
-
-@app.put("/admin/accounts/bulk-disable")
-@require_login()
-async def admin_bulk_disable_accounts(request: Request, account_ids: list[str]):
-    """批量禁用账户，单次最多50个"""
-    global multi_account_mgr
-    success_count, errors = _bulk_update_account_disabled_status(
-        account_ids, True, multi_account_mgr
-    )
-    return {"status": "success", "success_count": success_count, "errors": errors}
-
-# ---------- Auth endpoints (API) ----------
-@app.get("/admin/settings")
-@require_login()
-async def admin_get_settings(request: Request):
-    """获取系统设置"""
-    # 返回当前配置（转换为字典格式）
-    return {
-        "basic": {
-            "api_key": config.basic.api_key,
-            "base_url": config.basic.base_url,
-            "proxy_for_chat": config.basic.proxy_for_chat,
-            "image_expire_hours": config.basic.image_expire_hours,
-        },
-        "image_generation": {
-            "enabled": config.image_generation.enabled,
-            "supported_models": config.image_generation.supported_models,
-            "output_format": config.image_generation.output_format
-        },
-        "video_generation": {
-            "output_format": config.video_generation.output_format
-        },
-        "retry": {
-            "max_account_switch_tries": config.retry.max_account_switch_tries,
-            "text_rate_limit_cooldown_seconds": config.retry.text_rate_limit_cooldown_seconds,
-            "images_rate_limit_cooldown_seconds": config.retry.images_rate_limit_cooldown_seconds,
-            "videos_rate_limit_cooldown_seconds": config.retry.videos_rate_limit_cooldown_seconds,
-            "session_cache_ttl_seconds": config.retry.session_cache_ttl_seconds,
-            "auto_refresh_accounts_seconds": config.retry.auto_refresh_accounts_seconds,
-        },
-        "quota_limits": {
-            "enabled": config.quota_limits.enabled,
-            "text_daily_limit": config.quota_limits.text_daily_limit,
-            "images_daily_limit": config.quota_limits.images_daily_limit,
-            "videos_daily_limit": config.quota_limits.videos_daily_limit
-        },
-        "public_display": {
-            "logo_url": config.public_display.logo_url,
-            "chat_url": config.public_display.chat_url
-        },
-        "session": {
-            "expire_hours": config.session.expire_hours
-        }
-    }
-
-@app.put("/admin/settings")
-@require_login()
-async def admin_update_settings(request: Request, new_settings: dict = Body(...)):
-    """更新系统设置"""
-    global API_KEY, PROXY_FOR_CHAT, BASE_URL, LOGO_URL, CHAT_URL
-    global IMAGE_GENERATION_ENABLED, IMAGE_GENERATION_MODELS
-    global MAX_ACCOUNT_SWITCH_TRIES
-    global RETRY_POLICY
-    global SESSION_CACHE_TTL_SECONDS, AUTO_REFRESH_ACCOUNTS_SECONDS
-    global SESSION_EXPIRE_HOURS, multi_account_mgr, http_client, http_client_chat
-
-    try:
-        incoming_basic = dict(new_settings.get("basic") or {})
-        basic = {
-            "api_key": incoming_basic.get("api_key", config.basic.api_key),
-            "base_url": incoming_basic.get("base_url", config.basic.base_url),
-            "proxy_for_chat": incoming_basic.get("proxy_for_chat", config.basic.proxy_for_chat),
-            "auth_use_url_submit": config.basic.auth_use_url_submit,
-            "image_expire_hours": incoming_basic.get("image_expire_hours", config.basic.image_expire_hours),
-        }
-        new_settings["basic"] = basic
-
-        image_generation = dict(new_settings.get("image_generation") or {})
-        output_format = str(image_generation.get("output_format") or config_manager.image_output_format).lower()
-        if output_format not in ("base64", "url"):
-            output_format = "base64"
-        image_generation["output_format"] = output_format
-        new_settings["image_generation"] = image_generation
-
-        video_generation = dict(new_settings.get("video_generation") or {})
-        video_output_format = str(video_generation.get("output_format") or config_manager.video_output_format).lower()
-        if video_output_format not in ("html", "url", "markdown"):
-            video_output_format = "html"
-        video_generation["output_format"] = video_output_format
-        new_settings["video_generation"] = video_generation
-
-        incoming_retry = dict(new_settings.get("retry") or {})
-        retry = {
-            "max_account_switch_tries": incoming_retry.get("max_account_switch_tries", config.retry.max_account_switch_tries),
-            "rate_limit_cooldown_seconds": incoming_retry.get("rate_limit_cooldown_seconds", config.retry.rate_limit_cooldown_seconds),
-            "text_rate_limit_cooldown_seconds": incoming_retry.get("text_rate_limit_cooldown_seconds", config.retry.text_rate_limit_cooldown_seconds),
-            "images_rate_limit_cooldown_seconds": incoming_retry.get("images_rate_limit_cooldown_seconds", config.retry.images_rate_limit_cooldown_seconds),
-            "videos_rate_limit_cooldown_seconds": incoming_retry.get("videos_rate_limit_cooldown_seconds", config.retry.videos_rate_limit_cooldown_seconds),
-            "session_cache_ttl_seconds": incoming_retry.get("session_cache_ttl_seconds", config.retry.session_cache_ttl_seconds),
-            "auto_refresh_accounts_seconds": incoming_retry.get("auto_refresh_accounts_seconds", config.retry.auto_refresh_accounts_seconds),
-        }
-        new_settings["retry"] = retry
-
-        # 配额上限配置
-        quota_limits = dict(new_settings.get("quota_limits") or {})
-        quota_limits.setdefault("enabled", config.quota_limits.enabled)
-        quota_limits.setdefault("text_daily_limit", config.quota_limits.text_daily_limit)
-        quota_limits.setdefault("images_daily_limit", config.quota_limits.images_daily_limit)
-        quota_limits.setdefault("videos_daily_limit", config.quota_limits.videos_daily_limit)
-        new_settings["quota_limits"] = quota_limits
-
-        # 保存旧配置用于对比
-        old_proxy_for_chat = PROXY_FOR_CHAT
-        old_retry_config = {
-            "text_rate_limit_cooldown_seconds": RETRY_POLICY.cooldowns.text,
-            "images_rate_limit_cooldown_seconds": RETRY_POLICY.cooldowns.images,
-            "videos_rate_limit_cooldown_seconds": RETRY_POLICY.cooldowns.videos,
-            "session_cache_ttl_seconds": SESSION_CACHE_TTL_SECONDS
-        }
-
-        # 保存到 YAML
-        config_manager.save_yaml(new_settings)
-
-        # 热更新配置
-        config_manager.reload()
-
-        # 更新全局变量（实时生效）
-        API_KEY = config.basic.api_key
-        _proxy_chat, _no_proxy_chat = parse_proxy_setting(config.basic.proxy_for_chat)
-        PROXY_FOR_CHAT = _proxy_chat
-        _NO_PROXY = ",".join(filter(None, {_no_proxy_chat}))
-        if _NO_PROXY:
-            os.environ["NO_PROXY"] = _NO_PROXY
-        else:
-            os.environ.pop("NO_PROXY", None)
-        BASE_URL = config.basic.base_url
-        LOGO_URL = config.public_display.logo_url
-        CHAT_URL = config.public_display.chat_url
-        IMAGE_GENERATION_ENABLED = config.image_generation.enabled
-        IMAGE_GENERATION_MODELS = config.image_generation.supported_models
-        MAX_ACCOUNT_SWITCH_TRIES = config.retry.max_account_switch_tries
-        RETRY_POLICY = build_retry_policy()
-        SESSION_CACHE_TTL_SECONDS = config.retry.session_cache_ttl_seconds
-        AUTO_REFRESH_ACCOUNTS_SECONDS = config.retry.auto_refresh_accounts_seconds
-        SESSION_EXPIRE_HOURS = config.session.expire_hours
-
-        # 检查是否需要重建 HTTP 客户端（代理变化）
-        if old_proxy_for_chat != PROXY_FOR_CHAT:
-            logger.info(f"[CONFIG] Proxy configuration changed, rebuilding HTTP clients")
-            await http_client.aclose()
-            await http_client_chat.aclose()
-
-            # 重新创建对话客户端
-            http_client = httpx.AsyncClient(
-                proxy=(PROXY_FOR_CHAT or None),
-                verify=False,
-                http2=False,
-                timeout=httpx.Timeout(TIMEOUT_SECONDS, connect=60.0),
-                limits=httpx.Limits(
-                    max_keepalive_connections=100,
-                    max_connections=200
-                )
-            )
-
-            # 重新创建对话流式客户端
-            http_client_chat = httpx.AsyncClient(
-                proxy=(PROXY_FOR_CHAT or None),
-                verify=False,
-                http2=False,
-                timeout=httpx.Timeout(TIMEOUT_SECONDS, connect=60.0),
-                limits=httpx.Limits(
-                    max_keepalive_connections=100,
-                    max_connections=200
-                )
-            )
-
-            logger.info(f"[PROXY] Chat operations (JWT/session/messages): {PROXY_FOR_CHAT if PROXY_FOR_CHAT else 'disabled'}")
-
-            # 更新所有账户的 http_client 引用（对话用）
-            multi_account_mgr.update_http_client(http_client)
-
-        # 检查是否需要更新账户管理器配置（重试策略变化）
-        retry_changed = (
-            old_retry_config["text_rate_limit_cooldown_seconds"] != RETRY_POLICY.cooldowns.text or
-            old_retry_config["images_rate_limit_cooldown_seconds"] != RETRY_POLICY.cooldowns.images or
-            old_retry_config["videos_rate_limit_cooldown_seconds"] != RETRY_POLICY.cooldowns.videos or
-            old_retry_config["session_cache_ttl_seconds"] != SESSION_CACHE_TTL_SECONDS
-        )
-
-        if retry_changed:
-            logger.info(f"[CONFIG] 重试策略已变化，更新账户管理器配置")
-            # 更新所有账户管理器的配置
-            multi_account_mgr.cache_ttl = SESSION_CACHE_TTL_SECONDS
-            for account_id, account_mgr in multi_account_mgr.accounts.items():
-                account_mgr.apply_retry_policy(RETRY_POLICY)
-
-        logger.info(f"[CONFIG] 系统设置已更新并实时生效")
-        return {"status": "success", "message": "设置已保存并实时生效！"}
-    except Exception as e:
-        logger.error(f"[CONFIG] 更新设置失败: {str(e)}")
-        raise HTTPException(500, f"更新失败: {str(e)}")
-
-@app.get("/admin/log")
-@require_login()
-async def admin_get_logs(
-    request: Request,
-    limit: int = 300,
-    level: str = None,
-    search: str = None,
-    start_time: str = None,
-    end_time: str = None
-):
-    with log_lock:
-        logs = list(log_buffer)
-
-    stats_by_level = {}
-    error_logs = []
-    chat_count = 0
-    for log in logs:
-        level_name = log.get("level", "INFO")
-        stats_by_level[level_name] = stats_by_level.get(level_name, 0) + 1
-        if level_name in ["ERROR", "CRITICAL"]:
-            error_logs.append(log)
-        if "收到请求" in log.get("message", ""):
-            chat_count += 1
-
-    if level:
-        level = level.upper()
-        logs = [log for log in logs if log["level"] == level]
-    if search:
-        logs = [log for log in logs if search.lower() in log["message"].lower()]
-    if start_time:
-        logs = [log for log in logs if log["time"] >= start_time]
-    if end_time:
-        logs = [log for log in logs if log["time"] <= end_time]
-
-    limit = min(limit, log_buffer.maxlen)
-    filtered_logs = logs[-limit:]
-
-    return {
-        "total": len(filtered_logs),
-        "limit": limit,
-        "filters": {"level": level, "search": search, "start_time": start_time, "end_time": end_time},
-        "logs": filtered_logs,
-        "stats": {
-            "memory": {"total": len(log_buffer), "by_level": stats_by_level, "capacity": log_buffer.maxlen},
-            "errors": {"count": len(error_logs), "recent": error_logs[-10:]},
-            "chat_count": chat_count
-        }
-    }
-
-@app.delete("/admin/log")
-@require_login()
-async def admin_clear_logs(request: Request, confirm: str = None):
-    if confirm != "yes":
-        raise HTTPException(400, "需要 confirm=yes 参数确认清空操作")
-    with log_lock:
-        cleared_count = len(log_buffer)
-        log_buffer.clear()
-    logger.info("[LOG] 日志已清空")
-    return {"status": "success", "message": "已清空内存日志", "cleared_count": cleared_count}
-
 # ---------- Auth endpoints (API) ----------
 
 @app.get("/v1/models")
@@ -2744,131 +2160,6 @@ async def stream_chat_generator(session: str, text_content: str, file_ids: List[
         final_chunk = create_chunk(chat_id, created_time, model_name, {}, "stop")
         yield f"data: {final_chunk}\n\n"
         yield "data: [DONE]\n\n"
-
-# ---------- 公开端点（无需认证） ----------
-@app.get("/public/uptime")
-async def get_public_uptime(days: int = 90):
-    """获取 Uptime 监控数据（JSON格式）"""
-    if days < 1 or days > 90:
-        days = 90
-    return await uptime_tracker.get_uptime_summary(days)
-
-
-@app.get("/public/stats")
-async def get_public_stats():
-    """获取公开统计信息"""
-    async with stats_lock:
-        # 清理1小时前的请求时间戳
-        current_time = time.time()
-        recent_requests = [
-            ts for ts in global_stats["request_timestamps"]
-            if current_time - ts < 3600
-        ]
-
-        # 计算每分钟请求数
-        recent_minute = [
-            ts for ts in recent_requests
-            if current_time - ts < 60
-        ]
-        requests_per_minute = len(recent_minute)
-
-        # 计算负载状态
-        if requests_per_minute < 10:
-            load_status = "low"
-            load_color = "#10b981"  # 绿色
-        elif requests_per_minute < 30:
-            load_status = "medium"
-            load_color = "#f59e0b"  # 黄色
-        else:
-            load_status = "high"
-            load_color = "#ef4444"  # 红色
-
-        return {
-            "total_visitors": global_stats["total_visitors"],
-            "total_requests": global_stats["total_requests"],
-            "requests_per_minute": requests_per_minute,
-            "load_status": load_status,
-            "load_color": load_color
-        }
-
-@app.get("/public/display")
-async def get_public_display():
-    """获取公开展示信息"""
-    return {
-        "logo_url": LOGO_URL,
-        "chat_url": CHAT_URL
-    }
-
-@app.get("/public/log")
-async def get_public_logs(request: Request, limit: int = 100):
-    try:
-        # 基于IP的访问统计（24小时内去重）
-        client_ip = request.client.host
-        current_time = time.time()
-
-        async with stats_lock:
-            # 清理24小时前的IP记录
-            if "visitor_ips" not in global_stats:
-                global_stats["visitor_ips"] = {}
-            global_stats["visitor_ips"] = {
-                ip: timestamp for ip, timestamp in global_stats["visitor_ips"].items()
-                if current_time - timestamp <= 86400
-            }
-
-            # 记录新访问（24小时内同一IP只计数一次）
-            if client_ip not in global_stats["visitor_ips"]:
-                global_stats["visitor_ips"][client_ip] = current_time
-                global_stats["total_visitors"] = global_stats.get("total_visitors", 0) + 1
-
-            global_stats.setdefault("recent_conversations", [])
-            await save_stats(global_stats)
-
-            stored_logs = list(global_stats.get("recent_conversations", []))
-
-        sanitized_logs = get_sanitized_logs(limit=min(limit, 1000))
-
-        log_map = {log.get("request_id"): log for log in sanitized_logs}
-        for log in stored_logs:
-            request_id = log.get("request_id")
-            if request_id and request_id not in log_map:
-                log_map[request_id] = log
-
-        def get_log_ts(item: dict) -> float:
-            if "start_ts" in item:
-                return float(item["start_ts"])
-            try:
-                return datetime.strptime(item.get("start_time", ""), "%Y-%m-%d %H:%M:%S").timestamp()
-            except Exception:
-                return 0.0
-
-        merged_logs = sorted(log_map.values(), key=get_log_ts, reverse=True)[:min(limit, 1000)]
-        output_logs = []
-        for log in merged_logs:
-            if "start_ts" in log:
-                log = dict(log)
-                log.pop("start_ts", None)
-            output_logs.append(log)
-
-        return {
-            "total": len(output_logs),
-            "logs": output_logs
-        }
-    except Exception as e:
-        logger.error(f"[LOG] 获取公开日志失败: {e}")
-        return {"total": 0, "logs": [], "error": str(e)}
-    except Exception as e:
-        logger.error(f"[LOG] 获取公开日志失败: {e}")
-        return {"total": 0, "logs": [], "error": str(e)}
-
-# ---------- 全局 404 处理（必须在最后） ----------
-
-@app.exception_handler(404)
-async def not_found_handler(request: Request, exc: HTTPException):
-    """全局 404 处理器"""
-    return JSONResponse(
-        status_code=404,
-        content={"detail": "Not Found"}
-    )
 
 if __name__ == "__main__":
     import uvicorn

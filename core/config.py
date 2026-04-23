@@ -1,30 +1,25 @@
 """
-统一配置管理系统
+Unified configuration management.
 
-优先级规则：
-1. 安全配置：仅环境变量（ADMIN_KEY, SESSION_SECRET_KEY）
-2. 业务配置：数据库 > 默认值
-
-配置分类：
-- 安全配置：仅从环境变量读取，不可热更新（ADMIN_KEY, SESSION_SECRET_KEY）
-- 业务配置：仅从数据库读取，支持热更新（API_KEY, BASE_URL, PROXY, 重试策略等）
+Security configuration is read from environment variables only.
+Business configuration is loaded from storage and can be hot reloaded.
 """
 
+from __future__ import annotations
+
 import os
-import shutil
-import yaml
 import secrets
-from pathlib import Path
-from typing import Optional, List
-from pydantic import BaseModel, Field, validator
+from typing import List, Optional
+
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field, validator
 
 from core import storage
 
-# 加载 .env 文件
 load_dotenv()
 
-def _parse_bool(value, default: bool) -> bool:
+
+def _parse_bool(value: object, default: bool) -> bool:
     if isinstance(value, bool):
         return value
     if value is None:
@@ -33,174 +28,171 @@ def _parse_bool(value, default: bool) -> bool:
         return value != 0
     if isinstance(value, str):
         lowered = value.strip().lower()
-        if lowered in ("1", "true", "yes", "y", "on"):
+        if lowered in {"1", "true", "yes", "y", "on"}:
             return True
-        if lowered in ("0", "false", "no", "n", "off"):
+        if lowered in {"0", "false", "no", "n", "off"}:
             return False
     return default
 
 
-# ==================== 配置模型定义 ====================
+def _to_clean_str(value: object, default: str = "") -> str:
+    if value is None:
+        return default
+    return str(value).strip()
+
+
+def _normalize_browser_mode(browser_mode: object, browser_headless: object) -> tuple[str, bool]:
+    headless = _parse_bool(browser_headless, False)
+    default_mode = "headless" if headless else "normal"
+    normalized = _to_clean_str(browser_mode, default_mode).lower()
+    if normalized not in {"normal", "silent", "headless"}:
+        normalized = default_mode
+    return normalized, normalized == "headless"
+
+
+def _normalize_temp_mail_provider(value: object, default: str = "duckmail") -> str:
+    normalized = _to_clean_str(value, default).lower()
+    if normalized not in {"duckmail", "moemail", "freemail", "gptmail", "cfmail"}:
+        return default
+    return normalized
+
 
 class BasicConfig(BaseModel):
-    """基础配置"""
-    api_key: str = Field(default="", description="API访问密钥（留空则公开访问，多个密钥用逗号分隔）")
-    base_url: str = Field(default="", description="服务器URL（留空则自动检测）")
-    proxy_for_chat: str = Field(default="", description="对话操作代理地址（JWT/会话/消息，留空则不使用代理）")
-    auth_use_url_submit: bool = Field(default=True, description="登录时是否使用URL方式提交邮箱（true=URL提交，false=页面输入并点击邮箱登录）")
-    image_expire_hours: int = Field(default=12, ge=-1, le=720, description="图片/视频过期时间（小时），-1为永不删除")
+    """Primary application settings."""
+
+    api_key: str = Field(default="", description="API access key(s), comma separated")
+    base_url: str = Field(default="", description="Public base URL")
+    proxy_for_chat: str = Field(default="", description="Proxy used for chat/session traffic")
+    proxy_for_auth: str = Field(default="", description="Proxy used for refresh/auth automation")
+    image_expire_hours: int = Field(default=12, ge=-1, le=720, description="Media retention hours")
+
+    duckmail_base_url: str = Field(default="https://api.duckmail.sbs", description="DuckMail base URL")
+    duckmail_api_key: str = Field(default="", description="DuckMail API key")
+    duckmail_verify_ssl: bool = Field(default=True, description="DuckMail SSL verification")
+
+    temp_mail_provider: str = Field(default="duckmail", description="Default temp mail provider")
+
+    moemail_base_url: str = Field(default="https://moemail.nanohajimi.mom", description="Moemail base URL")
+    moemail_api_key: str = Field(default="", description="Moemail API key")
+    moemail_domain: str = Field(default="", description="Moemail domain")
+
+    freemail_base_url: str = Field(default="http://your-freemail-server.com", description="Freemail base URL")
+    freemail_jwt_token: str = Field(default="", description="Freemail JWT token")
+    freemail_verify_ssl: bool = Field(default=True, description="Freemail SSL verification")
+    freemail_domain: str = Field(default="", description="Freemail domain")
+
+    mail_proxy_enabled: bool = Field(default=False, description="Whether temp-mail requests use proxy")
+
+    gptmail_base_url: str = Field(default="https://mail.chatgpt.org.uk", description="GPTMail base URL")
+    gptmail_api_key: str = Field(default="", description="GPTMail API key")
+    gptmail_verify_ssl: bool = Field(default=True, description="GPTMail SSL verification")
+    gptmail_domain: str = Field(default="", description="GPTMail domain")
+
+    cfmail_base_url: str = Field(default="", description="CFMail base URL")
+    cfmail_api_key: str = Field(default="", description="CFMail API key")
+    cfmail_verify_ssl: bool = Field(default=True, description="CFMail SSL verification")
+    cfmail_domain: str = Field(default="", description="CFMail domain")
+
+    browser_mode: str = Field(default="normal", description="normal / silent / headless")
+    browser_headless: bool = Field(default=False, description="Legacy headless compatibility flag")
+    refresh_window_hours: int = Field(default=1, ge=0, le=24, description="Refresh window in hours")
+    register_domain: str = Field(default="", description="Register domain")
+    register_default_count: int = Field(default=20, ge=1, le=200, description="Default register count")
+
+    @validator("temp_mail_provider")
+    def validate_temp_mail_provider(cls, value: str) -> str:
+        return _normalize_temp_mail_provider(value)
+
+    @validator("browser_mode")
+    def validate_browser_mode(cls, value: str) -> str:
+        mode, _ = _normalize_browser_mode(value, value == "headless")
+        return mode
 
 
 class ImageGenerationConfig(BaseModel):
-    """图片生成配置"""
-    enabled: bool = Field(default=False, description="是否启用图片生成")
-    supported_models: List[str] = Field(
-        default=[],
-        description="支持图片生成的模型列表"
-    )
-    output_format: str = Field(default="base64", description="图片输出格式：base64 或 url")
+    """Image generation settings."""
+
+    enabled: bool = Field(default=False, description="Enable image generation")
+    supported_models: List[str] = Field(default=[], description="Models that support image generation")
+    output_format: str = Field(default="base64", description="base64 or url")
+
+    @validator("output_format")
+    def validate_output_format(cls, value: str) -> str:
+        normalized = value.lower()
+        if normalized not in {"base64", "url"}:
+            raise ValueError("output_format must be one of ['base64', 'url']")
+        return normalized
 
 
 class VideoGenerationConfig(BaseModel):
-    """视频生成配置"""
-    output_format: str = Field(default="html", description="视频输出格式：html/url/markdown")
+    """Video generation settings."""
+
+    output_format: str = Field(default="html", description="html / url / markdown")
 
     @validator("output_format")
-    def validate_output_format(cls, v):
-        allowed = ["html", "url", "markdown"]
-        if v not in allowed:
-            raise ValueError(f"output_format 必须是 {allowed} 之一")
-        return v
+    def validate_output_format(cls, value: str) -> str:
+        normalized = value.lower()
+        if normalized not in {"html", "url", "markdown"}:
+            raise ValueError("output_format must be one of ['html', 'url', 'markdown']")
+        return normalized
 
 
 class RetryConfig(BaseModel):
-    """重试策略配置"""
-    max_account_switch_tries: int = Field(default=5, ge=1, le=20, description="账户切换尝试次数")
-    rate_limit_cooldown_seconds: int = Field(default=7200, ge=3600, le=43200, description="429冷却时间（秒）")
-    text_rate_limit_cooldown_seconds: int = Field(default=7200, ge=3600, le=86400, description="对话配额冷却（秒）")
-    images_rate_limit_cooldown_seconds: int = Field(default=14400, ge=3600, le=86400, description="绘图配额冷却（秒）")
-    videos_rate_limit_cooldown_seconds: int = Field(default=14400, ge=3600, le=86400, description="视频配额冷却（秒）")
-    session_cache_ttl_seconds: int = Field(default=3600, ge=0, le=86400, description="会话缓存时间（秒，0表示禁用缓存）")
-    auto_refresh_accounts_seconds: int = Field(default=60, ge=0, le=600, description="自动刷新账号间隔（秒，0禁用）")
+    """Runtime retry and refresh automation settings."""
+
+    max_account_switch_tries: int = Field(default=5, ge=1, le=20)
+    rate_limit_cooldown_seconds: int = Field(default=7200, ge=3600, le=43200)
+    text_rate_limit_cooldown_seconds: int = Field(default=7200, ge=3600, le=86400)
+    images_rate_limit_cooldown_seconds: int = Field(default=14400, ge=3600, le=86400)
+    videos_rate_limit_cooldown_seconds: int = Field(default=14400, ge=3600, le=86400)
+    session_cache_ttl_seconds: int = Field(default=3600, ge=0, le=86400)
+
+    auto_refresh_accounts_seconds: int = Field(default=60, ge=0, le=86400)
+    scheduled_refresh_enabled: bool = Field(default=False)
+    scheduled_refresh_interval_minutes: int = Field(default=30, ge=0, le=720)
+    scheduled_refresh_cron: str = Field(default="", description="Legacy worker-compatible schedule syntax")
+    verification_code_resend_count: int = Field(default=2, ge=0, le=5)
+    refresh_batch_size: int = Field(default=5, ge=1, le=50)
+    refresh_batch_interval_minutes: int = Field(default=30, ge=0, le=720)
+    refresh_cooldown_hours: float = Field(default=12.0, ge=0, le=168)
+    delete_expired_accounts: bool = Field(default=False)
+    auto_register_enabled: bool = Field(default=False)
+    min_account_count: int = Field(default=0, ge=0, le=1000)
+
 
 class QuotaLimitsConfig(BaseModel):
-    """每日配额上限配置（基于 Google 官方限额，用于主动配额计数）"""
-    enabled: bool = Field(default=True, description="是否启用主动配额计数")
-    text_daily_limit: int = Field(default=120, ge=0, le=9999, description="对话每日上限（0=不限制）")
-    images_daily_limit: int = Field(default=2, ge=0, le=9999, description="绘图每日上限（0=不限制）")
-    videos_daily_limit: int = Field(default=1, ge=0, le=9999, description="视频每日上限（0=不限制）")
+    """Daily quota limit settings."""
+
+    enabled: bool = Field(default=True)
+    text_daily_limit: int = Field(default=120, ge=0, le=9999)
+    images_daily_limit: int = Field(default=2, ge=0, le=9999)
+    videos_daily_limit: int = Field(default=1, ge=0, le=9999)
 
 
 class PublicDisplayConfig(BaseModel):
-    """公开展示配置"""
+    """Public branding/display settings."""
+
     logo_url: str = Field(default="", description="Logo URL")
-    chat_url: str = Field(default="", description="开始对话链接")
+    chat_url: str = Field(default="", description="Chat entry URL")
 
 
 class SessionConfig(BaseModel):
-    """Session配置"""
-    expire_hours: int = Field(default=24, ge=1, le=168, description="Session过期时间（小时）")
+    """Admin session settings."""
 
-
-class AutomationSelectorsConfig(BaseModel):
-    """自动化选择器配置（可热更新）"""
-    email_input_selectors: List[str] = Field(default_factory=lambda: [
-        "css:input#email-input",
-        "css:input[name='loginHint']",
-        "css:input[jsname='YPqjbf']",
-        "css:input[type='email']",
-        "css:input[autocomplete='username']",
-        "css:input[name='identifier']",
-        "css:input[name='email']",
-    ], description="邮箱输入框选择器")
-    email_submit_button_selectors: List[str] = Field(default_factory=lambda: [
-        "css:button#log-in-button",
-        "css:button[jsname='jXw9Fb']",
-        "css:button[aria-label='使用邮箱继续']",
-    ], description="邮箱提交按钮优先选择器")
-    email_submit_button_keywords: List[str] = Field(default_factory=lambda: [
-        "使用邮箱继续",
-        "使用邮箱登录",
-        "通过电子邮件登录",
-        "通过电子邮件发送验证码",
-        "通过电子邮件发送",
-        "sign in with email",
-        "use email",
-        "continue with email",
-        "next",
-        "继续",
-        "下一步",
-    ], description="邮箱提交按钮关键词")
-    generic_clickable_selectors: List[str] = Field(default_factory=lambda: [
-        "tag:button",
-        "tag:a",
-        "css:[role='button']",
-        "css:div[role='button']",
-    ], description="通用可点击元素选择器")
-    code_input_selectors: List[str] = Field(default_factory=lambda: [
-        "css:input[jsname='ovqh0b']",
-        "css:input[type='tel']",
-        "css:input[name='pinInput']",
-        "css:input[autocomplete='one-time-code']",
-    ], description="验证码输入框选择器")
-    send_code_button_keywords: List[str] = Field(default_factory=lambda: [
-        "通过电子邮件发送验证码",
-        "通过电子邮件发送",
-        "email",
-        "Email",
-        "Send code",
-        "Send verification",
-        "Verification code",
-    ], description="发送验证码按钮关键词")
-    resend_button_keywords: List[str] = Field(default_factory=lambda: [
-        "重新发送验证码",
-        "重新发送",
-        "重新获取",
-        "再次发送",
-        "获取新验证码",
-        "resend",
-        "send again",
-        "resend code",
-        "new code",
-        "try again",
-    ], description="重发按钮关键词")
-    status_message_selectors: List[str] = Field(default_factory=lambda: [
-        "css:.zyTWof-gIZMF",
-        "css:[role='alert']",
-        "css:aside",
-        "tag:body",
-    ], description="发送状态提示选择器")
-    send_status_success_keywords: List[str] = Field(default_factory=lambda: [
-        "验证码已发送",
-        "code sent",
-        "email sent",
-        "check your email",
-        "已发送",
-    ], description="发送成功关键词")
-    send_status_error_keywords: List[str] = Field(default_factory=lambda: [
-        "出了点问题",
-        "出了问题",
-        "something went wrong",
-        "error",
-        "failed",
-        "try again",
-        "稍后再试",
-        "选择其他登录方法",
-    ], description="发送失败关键词")
+    expire_hours: int = Field(default=24, ge=1, le=168)
 
 
 class SecurityConfig(BaseModel):
-    """安全配置（仅从环境变量读取，不可热更新）"""
-    admin_key: str = Field(default="", description="管理员密钥（必需）")
-    session_secret_key: str = Field(..., description="Session密钥")
+    """Security settings read from environment only."""
+
+    admin_key: str = Field(default="", description="Admin password")
+    session_secret_key: str = Field(..., description="Session signing secret")
 
 
 class AppConfig(BaseModel):
-    """应用配置（统一管理）"""
-    # 安全配置（仅从环境变量）
-    security: SecurityConfig
+    """Full application configuration."""
 
-    # 业务配置（环境变量 > 数据库 > 默认值）
+    security: SecurityConfig
     basic: BasicConfig
     image_generation: ImageGenerationConfig
     video_generation: VideoGenerationConfig = Field(default_factory=VideoGenerationConfig)
@@ -208,116 +200,62 @@ class AppConfig(BaseModel):
     quota_limits: QuotaLimitsConfig = Field(default_factory=QuotaLimitsConfig)
     public_display: PublicDisplayConfig
     session: SessionConfig
-    automation_selectors: AutomationSelectorsConfig = Field(default_factory=AutomationSelectorsConfig)
 
-
-# ==================== 配置管理器 ====================
 
 class ConfigManager:
-    """配置管理器（单例）"""
+    """Central config manager."""
 
-    def __init__(self, yaml_path: str = None):
-        # 自动检测环境并设置默认路径
-        if yaml_path is None:
-            yaml_path = ""
-        self.yaml_path = Path(yaml_path)
+    def __init__(self, yaml_path: str | None = None):
+        self.yaml_path = yaml_path or ""
         self._config: Optional[AppConfig] = None
         self.load()
 
-    def load(self):
-        """
-        加载配置
-
-        优先级规则：
-        1. 安全配置（ADMIN_KEY, SESSION_SECRET_KEY）：仅从环境变量读取
-        2. 业务配置：数据库 > 默认值
-        """
-        # 1. 从数据库加载配置
+    def load(self) -> None:
         yaml_data = self._load_yaml()
-
-        # 2. 加载安全配置（仅从环境变量，不允许 Web 修改）
         security_config = SecurityConfig(
             admin_key=os.getenv("ADMIN_KEY", ""),
-            session_secret_key=os.getenv("SESSION_SECRET_KEY", self._generate_secret())
+            session_secret_key=os.getenv("SESSION_SECRET_KEY", self._generate_secret()),
         )
 
-        # 3. 加载基础配置（数据库 > 默认值）
-        basic_data = yaml_data.get("basic", {})
-        # 兼容旧配置：如果存在旧的 proxy 字段，迁移到新字段
-        old_proxy = str(basic_data.get("proxy") or "").strip()
-        proxy_for_chat_raw = basic_data.get("proxy_for_chat", "")
-        if isinstance(proxy_for_chat_raw, bool):
-            proxy_for_chat = old_proxy if proxy_for_chat_raw else ""
-        else:
-            proxy_for_chat = str(proxy_for_chat_raw or "").strip()
-            if not proxy_for_chat and old_proxy and "proxy_for_chat" not in basic_data:
-                proxy_for_chat = old_proxy
+        basic_data = dict(yaml_data.get("basic", {}) or {})
+        basic_config = self._build_basic_config(basic_data)
 
-        basic_config = BasicConfig(
-            api_key=basic_data.get("api_key") or "",
-            base_url=basic_data.get("base_url") or "",
-            proxy_for_chat=proxy_for_chat,
-            auth_use_url_submit=_parse_bool(basic_data.get("auth_use_url_submit"), True),
-            image_expire_hours=int(basic_data.get("image_expire_hours", 12)),
-        )
-
-        # 4. 加载其他配置（从数据库，带容错处理）
         try:
-            image_generation_config = ImageGenerationConfig(
-                **yaml_data.get("image_generation", {})
-            )
-        except Exception as e:
-            print(f"[WARN] 图片生成配置加载失败，使用默认值: {e}")
+            image_generation_config = ImageGenerationConfig(**dict(yaml_data.get("image_generation", {}) or {}))
+        except Exception as exc:
+            print(f"[WARN] image_generation config load failed, using defaults: {exc}")
             image_generation_config = ImageGenerationConfig()
 
-        # 加载视频生成配置
         try:
-            video_generation_config = VideoGenerationConfig(
-                **yaml_data.get("video_generation", {})
-            )
-        except Exception as e:
-            print(f"[WARN] 视频生成配置加载失败，使用默认值: {e}")
+            video_generation_config = VideoGenerationConfig(**dict(yaml_data.get("video_generation", {}) or {}))
+        except Exception as exc:
+            print(f"[WARN] video_generation config load failed, using defaults: {exc}")
             video_generation_config = VideoGenerationConfig()
 
-        # 加载重试配置（Pydantic 会自动验证范围）
         try:
-            retry_config = RetryConfig(**yaml_data.get("retry", {}))
-        except Exception as e:
-            print(f"[WARN] 重试配置加载失败，使用默认值: {e}")
+            retry_config = RetryConfig(**dict(yaml_data.get("retry", {}) or {}))
+        except Exception as exc:
+            print(f"[WARN] retry config load failed, using defaults: {exc}")
             retry_config = RetryConfig()
 
-        # 加载配额上限配置
         try:
-            quota_limits_config = QuotaLimitsConfig(**yaml_data.get("quota_limits", {}))
-        except Exception as e:
-            print(f"[WARN] 配额上限配置加载失败，使用默认值: {e}")
+            quota_limits_config = QuotaLimitsConfig(**dict(yaml_data.get("quota_limits", {}) or {}))
+        except Exception as exc:
+            print(f"[WARN] quota_limits config load failed, using defaults: {exc}")
             quota_limits_config = QuotaLimitsConfig()
 
         try:
-            public_display_config = PublicDisplayConfig(
-                **yaml_data.get("public_display", {})
-            )
-        except Exception as e:
-            print(f"[WARN] 公开展示配置加载失败，使用默认值: {e}")
+            public_display_config = PublicDisplayConfig(**dict(yaml_data.get("public_display", {}) or {}))
+        except Exception as exc:
+            print(f"[WARN] public_display config load failed, using defaults: {exc}")
             public_display_config = PublicDisplayConfig()
 
         try:
-            session_config = SessionConfig(
-                **yaml_data.get("session", {})
-            )
-        except Exception as e:
-            print(f"[WARN] Session配置加载失败，使用默认值: {e}")
+            session_config = SessionConfig(**dict(yaml_data.get("session", {}) or {}))
+        except Exception as exc:
+            print(f"[WARN] session config load failed, using defaults: {exc}")
             session_config = SessionConfig()
 
-        try:
-            automation_selectors_config = AutomationSelectorsConfig(
-                **yaml_data.get("automation_selectors", {})
-            )
-        except Exception as e:
-            print(f"[WARN] 自动化选择器配置加载失败，使用默认值: {e}")
-            automation_selectors_config = AutomationSelectorsConfig()
-
-        # 5. 构建完整配置
         self._config = AppConfig(
             security=security_config,
             basic=basic_config,
@@ -327,79 +265,105 @@ class ConfigManager:
             quota_limits=quota_limits_config,
             public_display=public_display_config,
             session=session_config,
-            automation_selectors=automation_selectors_config,
+        )
+
+    def _build_basic_config(self, basic_data: dict[str, object]) -> BasicConfig:
+        old_proxy = _to_clean_str(basic_data.get("proxy"))
+
+        proxy_for_chat_raw = basic_data.get("proxy_for_chat", "")
+        if isinstance(proxy_for_chat_raw, bool):
+            proxy_for_chat = old_proxy if proxy_for_chat_raw else ""
+        else:
+            proxy_for_chat = _to_clean_str(proxy_for_chat_raw)
+            if not proxy_for_chat and old_proxy and "proxy_for_chat" not in basic_data:
+                proxy_for_chat = old_proxy
+
+        proxy_for_auth_raw = basic_data.get("proxy_for_auth", "")
+        if isinstance(proxy_for_auth_raw, bool):
+            proxy_for_auth = old_proxy if proxy_for_auth_raw else ""
+        else:
+            proxy_for_auth = _to_clean_str(proxy_for_auth_raw)
+            if not proxy_for_auth and old_proxy and "proxy_for_auth" not in basic_data:
+                proxy_for_auth = old_proxy
+
+        browser_mode, browser_headless = _normalize_browser_mode(
+            basic_data.get("browser_mode"),
+            basic_data.get("browser_headless"),
+        )
+
+        return BasicConfig(
+            api_key=_to_clean_str(basic_data.get("api_key")),
+            base_url=_to_clean_str(basic_data.get("base_url")),
+            proxy_for_chat=proxy_for_chat,
+            proxy_for_auth=proxy_for_auth,
+            image_expire_hours=int(basic_data.get("image_expire_hours", 12)),
+            duckmail_base_url=_to_clean_str(basic_data.get("duckmail_base_url"), "https://api.duckmail.sbs"),
+            duckmail_api_key=_to_clean_str(basic_data.get("duckmail_api_key")),
+            duckmail_verify_ssl=_parse_bool(basic_data.get("duckmail_verify_ssl"), True),
+            temp_mail_provider=_normalize_temp_mail_provider(basic_data.get("temp_mail_provider"), "duckmail"),
+            moemail_base_url=_to_clean_str(basic_data.get("moemail_base_url"), "https://moemail.nanohajimi.mom"),
+            moemail_api_key=_to_clean_str(basic_data.get("moemail_api_key")),
+            moemail_domain=_to_clean_str(basic_data.get("moemail_domain")),
+            freemail_base_url=_to_clean_str(basic_data.get("freemail_base_url"), "http://your-freemail-server.com"),
+            freemail_jwt_token=_to_clean_str(basic_data.get("freemail_jwt_token")),
+            freemail_verify_ssl=_parse_bool(basic_data.get("freemail_verify_ssl"), True),
+            freemail_domain=_to_clean_str(basic_data.get("freemail_domain")),
+            mail_proxy_enabled=_parse_bool(basic_data.get("mail_proxy_enabled"), False),
+            gptmail_base_url=_to_clean_str(basic_data.get("gptmail_base_url"), "https://mail.chatgpt.org.uk"),
+            gptmail_api_key=_to_clean_str(basic_data.get("gptmail_api_key")),
+            gptmail_verify_ssl=_parse_bool(basic_data.get("gptmail_verify_ssl"), True),
+            gptmail_domain=_to_clean_str(basic_data.get("gptmail_domain")),
+            cfmail_base_url=_to_clean_str(basic_data.get("cfmail_base_url")),
+            cfmail_api_key=_to_clean_str(basic_data.get("cfmail_api_key")),
+            cfmail_verify_ssl=_parse_bool(basic_data.get("cfmail_verify_ssl"), True),
+            cfmail_domain=_to_clean_str(basic_data.get("cfmail_domain")),
+            browser_mode=browser_mode,
+            browser_headless=browser_headless,
+            refresh_window_hours=int(basic_data.get("refresh_window_hours", 1)),
+            register_domain=_to_clean_str(basic_data.get("register_domain")),
+            register_default_count=max(1, int(basic_data.get("register_default_count", 20))),
         )
 
     def _load_yaml(self) -> dict:
-        """从数据库加载配置（允许空配置）。"""
         if storage.is_database_enabled():
             try:
                 data = storage.load_settings_sync()
-
-                # 允许空库启动：None 可能是空配置或连接异常
                 if data is None:
-                    print("[WARN] 未读取到 settings（可能为空库或连接异常），将使用默认配置启动")
+                    print("[WARN] settings not found, booting with defaults")
                     return {}
-
                 if isinstance(data, dict):
                     return data
-
                 return {}
             except RuntimeError:
-                # 重新抛出 RuntimeError
                 raise
-            except Exception as e:
-                print(f"[ERROR] 数据库加载失败: {e}")
-                raise RuntimeError(f"数据库加载失败: {e}")
+            except Exception as exc:
+                print(f"[ERROR] storage load failed: {exc}")
+                raise RuntimeError(f"storage load failed: {exc}") from exc
 
-        print("[ERROR] 未启用数据库")
-        raise RuntimeError("未配置 DATABASE_URL，应用无法启动")
+        print("[ERROR] DATABASE_URL is not configured")
+        raise RuntimeError("DATABASE_URL is not configured")
 
     def _generate_secret(self) -> str:
-        """生成随机密钥"""
         return secrets.token_urlsafe(32)
 
-    def save_yaml(self, data: dict):
-        """保存配置到数据库（先验证再保存）"""
+    def save_yaml(self, data: dict) -> None:
         if not storage.is_database_enabled():
             raise RuntimeError("Database is not enabled")
 
-        # 先验证数据是否符合 Pydantic 模型要求
         try:
-            # 构建临时配置进行验证
             security_config = SecurityConfig(
                 admin_key=os.getenv("ADMIN_KEY", ""),
-                session_secret_key=os.getenv("SESSION_SECRET_KEY", self._generate_secret())
+                session_secret_key=os.getenv("SESSION_SECRET_KEY", self._generate_secret()),
             )
+            basic_config = self._build_basic_config(dict(data.get("basic", {}) or {}))
+            image_generation_config = ImageGenerationConfig(**dict(data.get("image_generation", {}) or {}))
+            video_generation_config = VideoGenerationConfig(**dict(data.get("video_generation", {}) or {}))
+            retry_config = RetryConfig(**dict(data.get("retry", {}) or {}))
+            quota_limits_config = QuotaLimitsConfig(**dict(data.get("quota_limits", {}) or {}))
+            public_display_config = PublicDisplayConfig(**dict(data.get("public_display", {}) or {}))
+            session_config = SessionConfig(**dict(data.get("session", {}) or {}))
 
-            basic_data = data.get("basic", {})
-            basic_config = BasicConfig(**basic_data)
-
-            image_generation_config = ImageGenerationConfig(
-                **data.get("image_generation", {})
-            )
-
-            video_generation_config = VideoGenerationConfig(
-                **data.get("video_generation", {})
-            )
-
-            retry_config = RetryConfig(**data.get("retry", {}))
-
-            quota_limits_config = QuotaLimitsConfig(**data.get("quota_limits", {}))
-
-            public_display_config = PublicDisplayConfig(
-                **data.get("public_display", {})
-            )
-
-            session_config = SessionConfig(
-                **data.get("session", {})
-            )
-            automation_selectors_config = AutomationSelectorsConfig(
-                **data.get("automation_selectors", {})
-            )
-
-            # 验证通过，构建完整配置
-            test_config = AppConfig(
+            AppConfig(
                 security=security_config,
                 basic=basic_config,
                 image_generation=image_generation_config,
@@ -408,102 +372,80 @@ class ConfigManager:
                 quota_limits=quota_limits_config,
                 public_display=public_display_config,
                 session=session_config,
-                automation_selectors=automation_selectors_config,
             )
-        except Exception as e:
-            # 验证失败，不保存到数据库
-            raise ValueError(f"配置验证失败: {str(e)}")
+        except Exception as exc:
+            raise ValueError(f"config validation failed: {exc}") from exc
 
-        # 验证通过后才保存到数据库
         try:
             saved = storage.save_settings_sync(data)
             if saved:
                 return
-        except Exception as e:
-            print(f"[WARN] 数据库保存失败: {e}")
+        except Exception as exc:
+            print(f"[WARN] storage save failed: {exc}")
         raise RuntimeError("Database write failed")
 
-    def reload(self):
-        """重新加载配置（热更新）"""
+    def reload(self) -> None:
         self.load()
 
     @property
     def config(self) -> AppConfig:
-        """获取配置"""
         return self._config
-
-    # ==================== 便捷访问属性 ====================
 
     @property
     def api_key(self) -> str:
-        """API访问密钥"""
         return self._config.basic.api_key
 
     @property
     def admin_key(self) -> str:
-        """管理员密钥"""
         return self._config.security.admin_key
 
     @property
     def session_secret_key(self) -> str:
-        """Session密钥"""
         return self._config.security.session_secret_key
 
+    @property
     def proxy_for_chat(self) -> str:
-        """对话操作代理地址"""
         return self._config.basic.proxy_for_chat
 
     @property
     def base_url(self) -> str:
-        """服务器URL"""
         return self._config.basic.base_url
 
     @property
     def logo_url(self) -> str:
-        """Logo URL"""
         return self._config.public_display.logo_url
 
     @property
     def chat_url(self) -> str:
-        """开始对话链接"""
         return self._config.public_display.chat_url
 
     @property
     def image_generation_enabled(self) -> bool:
-        """是否启用图片生成"""
         return self._config.image_generation.enabled
 
     @property
     def image_generation_models(self) -> List[str]:
-        """支持图片生成的模型列表"""
         return self._config.image_generation.supported_models
 
     @property
     def image_output_format(self) -> str:
-        """图片输出格式"""
         return self._config.image_generation.output_format
 
     @property
     def video_output_format(self) -> str:
-        """视频输出格式"""
         return self._config.video_generation.output_format
 
     @property
     def session_expire_hours(self) -> int:
-        """Session过期时间（小时）"""
         return self._config.session.expire_hours
 
     @property
     def max_account_switch_tries(self) -> int:
-        """账户切换尝试次数"""
         return self._config.retry.max_account_switch_tries
 
     @property
     def rate_limit_cooldown_seconds(self) -> int:
-        # 429 cooldown (seconds)
-        if hasattr(self._config.retry, 'text_rate_limit_cooldown_seconds'):
-            return self._config.retry.text_rate_limit_cooldown_seconds
-        return self._config.retry.rate_limit_cooldown_seconds
+        return self._config.retry.text_rate_limit_cooldown_seconds
 
     @property
     def text_rate_limit_cooldown_seconds(self) -> int:
@@ -519,28 +461,17 @@ class ConfigManager:
 
     @property
     def session_cache_ttl_seconds(self) -> int:
-        # Session cache TTL (seconds)
         return self._config.retry.session_cache_ttl_seconds
 
-    @property
-    def auto_refresh_accounts_seconds(self) -> int:
-        # Auto refresh accounts interval (seconds)
-        return self._config.retry.auto_refresh_accounts_seconds
-
-
-# ==================== 全局配置管理器 ====================
 
 config_manager = ConfigManager()
 
-# 注意：不要直接引用 config_manager.config，因为 reload() 后引用会失效
-# 应该始终通过 config_manager.config 访问配置
+
 def get_config() -> AppConfig:
-    """获取当前配置（支持热更新）"""
     return config_manager.config
 
-# 为了向后兼容，保留 config 变量，但使用属性访问
+
 class _ConfigProxy:
-    """配置代理，确保始终访问最新配置"""
     @property
     def basic(self):
         return config_manager.config.basic
@@ -573,8 +504,5 @@ class _ConfigProxy:
     def session(self):
         return config_manager.config.session
 
-    @property
-    def automation_selectors(self):
-        return config_manager.config.automation_selectors
 
 config = _ConfigProxy()

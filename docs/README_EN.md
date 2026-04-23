@@ -37,7 +37,7 @@
 
 - ✅ Full OpenAI API compatibility - Seamless integration with existing tools
 - ✅ Multi-account load balancing - Round-robin with automatic failover
-- ✅ Automated account management - Auto registration & login, multiple temp email providers, headless browser mode
+- ✅ Multi-account configuration management - Batch import/export, status filtering, enable/disable, and in-panel editing
 - ✅ Streaming output - Real-time responses
 - ✅ Multimodal input - 100+ file types (images, PDF, Office docs, audio, video, code, etc.)
 - ✅ Image generation & image-to-image - Configurable models, Base64 or URL output
@@ -163,17 +163,6 @@ Use an online database only when necessary (for example: multi-instance shared d
 DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
 ```
 
-### Local Refresh Service Recommendation (`refresh-worker`)
-
-- Recommended topology: deploy `main` on cloud, run `refresh-worker` locally for browser-based refresh jobs.
-- Prefer local SQLite (`data.db`) as refresh-side cache for better stability under network jitter.
-- If your local refresh worker needs to connect to the remote admin panel directly, use remote interface + `ADMIN_KEY`:
-
-```env
-REMOTE_PROJECT_BASE_URL=https://your-beta-domain.example
-REMOTE_PROJECT_PASSWORD=your_admin_key
-```
-
 **Online PostgreSQL (Optional):**
 
 | Service | Free Tier | How to Get |
@@ -241,68 +230,6 @@ curl http://localhost:7860/v1/chat/completions \
 
 ---
 
-## 📧 Email Provider Configuration
-
-The project supports 6 temporary email providers for automatic account registration. Switch and configure them in **Admin Panel → System Settings → Temp Email Provider**.
-
-### Moemail (Default)
-
-Open-source temporary email service, ready to use out of the box.
-
-- **Project**: [github.com/beilunyang/moemail](https://github.com/beilunyang/moemail)
-- **Website**: [moemail.app](https://moemail.app)
-- **Config**: API URL + API Key + Domain (optional)
-
-### DuckMail
-
-Temporary email API service. Custom domain recommended.
-
-- **Domain Management**: [domain.duckmail.sbs](https://domain.duckmail.sbs/)
-- **Config**: API URL + API Key + Registration Domain
-
-### GPTMail
-
-Temporary email API service, no password required.
-
-- **Default URL**: `https://mail.chatgpt.org.uk`
-- **Default API Key**: `gpt-test`
-- **Config**: API URL + API Key + Domain (optional)
-
-### Freemail
-
-Self-hosted temporary email service, for users with their own servers.
-
-- **Project**: [github.com/idinging/freemail](https://github.com/idinging/freemail)
-- **Config**: Self-hosted service URL + JWT Token + Domain (optional)
-
-### Cloudflare Mail (CFMail)
-
-Cloudflare-based temporary email service, suitable for self-hosted or lightweight deployments.
-
-- **Project**: [github.com/dreamhunter2333/cloudflare_temp_email](https://github.com/dreamhunter2333/cloudflare_temp_email)
-- **Admin Panel Path**: System Settings → Temp Email Provider = `cfmail`
-- **Config**:
-  - Cloudflare Mail API URL (`cfmail_base_url`)
-  - Access password (`cfmail_api_key`, can be empty if your instance does not require it)
-  - Email domain (`cfmail_domain`, optional, without `@`)
-- **Import format (optional)**: `cfmail----you@example.com----jwtToken`
-  - The third field is the mailbox JWT token used to fetch verification codes.
-
-### Sample Mail
-
-Lightweight self-hosted temporary email based on Cloudflare Workers + D1. No API Key required; the email domain is determined by the Worker environment variable.
-
-- **Project**: [github.com/bestK/sample-mail](https://github.com/bestK/sample-mail)
-- **Admin Panel Path**: System Settings → Temp Email Provider = `samplemail`
-- **Configuration**:
-  - Sample Mail Worker URL (`samplemail_base_url`, required)
-  - SSL verification (`samplemail_verify_ssl`, enabled by default)
-- **Note**: Domain selection and API Key are not supported. The email domain is set via the `EMAIL_DOMAIN` environment variable in your Worker.
-
-> **Tip**: All email settings are configured in the admin panel. Microsoft email login is also handled through the admin panel.
-
----
-
 ## 🌐 Recommended Deployment Platforms
 
 In addition to local Docker Compose, these platforms support Docker image deployment:
@@ -344,56 +271,14 @@ In addition to local Docker Compose, these platforms support Docker image deploy
 
 ---
 
-## 🔄 Standalone Refresh Service
+## 🌿 Mainline Focus
 
-To deploy the account refresh service separately from the main API, use the [`refresh-worker` branch](https://github.com/Dreamy-rain/gemini-business2api/tree/refresh-worker):
+The current `main` / `beta` branches focus on the **Gemini Business 2API gateway** and the **admin panel**:
 
-```bash
-git clone -b refresh-worker https://github.com/Dreamy-rain/gemini-business2api.git gemini-refresh-worker
-cd gemini-refresh-worker
-cp .env.example .env
-# Edit .env (default local data.db; set DATABASE_URL only when needed)
-docker compose up -d
-```
+- `main`: stable line for production deployment
+- `beta`: pre-release line where new features land first
 
-This service reads accounts from the database and runs scheduled credential refresh independently. Supports cron scheduling, batch processing, and cooldown deduplication.
-
----
-
-## 🌿 Branch Guide
-
-To keep deployment logic clear, choose branches by scenario:
-
-- `main`: stable line (recommended for production API + admin panel)
-- `beta`: pre-release line (new features land here first)
-- `refresh-worker`: standalone refresh service branch (ideal for local refresh worker + remote API)
-- `clash-proxy`: Clash proxy branch (for registration/refresh in proxy-constrained networks)
-
-Recommended setup:
-
-- Deploy `main`/`beta` on cloud for API + admin panel
-- Run `refresh-worker` locally for account registration/refresh
-- Use `clash-proxy` when your network path relies on Clash proxy routing
-
-### Clash Proxy Deployment Example
-
-```bash
-git clone -b clash-proxy https://github.com/Dreamy-rain/gemini-business2api.git gemini-business2api-clash
-cd gemini-business2api-clash
-cp .env.example .env
-# Edit .env and proxy settings in the admin panel, then start
-docker compose up -d
-```
-
----
-
-## 🌐 Socks5 Free Proxy Pool
-
-Configure a proxy when auto-registering/refreshing accounts to improve success rates:
-
-- **Project**: [github.com/Dreamy-rain/socks5-proxy](https://github.com/Dreamy-rain/socks5-proxy)
-- **Note**: Free proxies are not very stable, but can help improve registration success rates
-- **Usage**: Configure in Admin Panel → System Settings → Proxy Settings
+Registration, refresh, and special proxy workflow experiments now live in dedicated branches or separate repositories instead of being part of the mainline README flow.
 
 ---
 
@@ -432,6 +317,7 @@ Configure a proxy when auto-registering/refreshing accounts to improve success r
 ### Documentation
 
 - Supported file types: [SUPPORTED_FILE_TYPES.md](SUPPORTED_FILE_TYPES.md)
+- Refresh architecture and config boundaries: [refresh-architecture.md](../docs/refresh-architecture.md)
 
 ## ⭐ Star History
 
