@@ -745,7 +745,7 @@ def load_accounts_from_source() -> list:
                 logger.info(f"[CONFIG] 从数据库加载配置，共 {len(accounts_data)} 个账户")
             else:
                 logger.warning("[CONFIG] 数据库中账户配置为空")
-                logger.warning("[CONFIG] 如需迁移数据，请运行: python scripts/migrate_to_database.py")
+                logger.warning("[CONFIG] 请先通过后台导入账号，或提供 ACCOUNTS_CONFIG")
 
             return accounts_data
         except RuntimeError:

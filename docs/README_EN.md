@@ -19,9 +19,17 @@
 
 ## Project Positioning
 
-Gemini Business2API turns [Gemini Business](https://business.google.com) into an **OpenAI-compatible API gateway** with a built-in admin panel for managing account pools, system settings, image / video capability, runtime monitoring, and logs.
+Gemini Business2API turns [Gemini Business](https://business.gemini.google) into an **OpenAI-compatible API gateway** with a built-in admin panel for managing account pools, system settings, image / video capability, runtime monitoring, and logs.
 
 The current mainline has a very clear goal: provide a stable **2API main service** and keep historical registration, refresh, and experimental flows out of the primary repository path.
+
+---
+
+## Contact
+
+Join the Business2API group:
+
+- [https://qm.qq.com/q/yegwCqJisS](https://qm.qq.com/q/yegwCqJisS)
 
 ---
 
@@ -44,13 +52,13 @@ The current mainline has a very clear goal: provide a stable **2API main service
 
 | Model ID                 | Vision | Native Web | File Multimodal | Image Gen | Video Gen |
 | ------------------------ | ------ | ---------- | --------------- | --------- | --------- |
-| `gemini-auto`            | ✅     | ✅         | ✅              | Optional  | -         |
-| `gemini-2.5-flash`       | ✅     | ✅         | ✅              | Optional  | -         |
-| `gemini-2.5-pro`         | ✅     | ✅         | ✅              | Optional  | -         |
-| `gemini-3-flash-preview` | ✅     | ✅         | ✅              | Optional  | -         |
-| `gemini-3.1-pro-preview` | ✅     | ✅         | ✅              | Optional  | -         |
-| `gemini-imagen`          | ✅     | ✅         | ✅              | ✅        | -         |
-| `gemini-veo`             | ✅     | ✅         | ✅              | -         | ✅        |
+| `gemini-auto`            | ✅      | ✅          | ✅               | Optional  | -         |
+| `gemini-2.5-flash`       | ✅      | ✅          | ✅               | Optional  | -         |
+| `gemini-2.5-pro`         | ✅      | ✅          | ✅               | Optional  | -         |
+| `gemini-3-flash-preview` | ✅      | ✅          | ✅               | Optional  | -         |
+| `gemini-3.1-pro-preview` | ✅      | ✅          | ✅               | Optional  | -         |
+| `gemini-imagen`          | ✅      | ✅          | ✅               | ✅         | -         |
+| `gemini-veo`             | ✅      | ✅          | ✅               | -         | ✅         |
 
 > `gemini-imagen` is the dedicated image generation model, and `gemini-veo` is the dedicated video generation model.
 
@@ -174,6 +182,7 @@ Best for development, debugging, and local code iteration.
 
 ---
 
+
 ## Access URLs
 
 - Admin panel: `http://localhost:7860/`
@@ -219,24 +228,35 @@ This directory stores:
 
 ## API Compatibility Endpoints
 
-| Endpoint | Method | Description |
-| -------- | ------ | ----------- |
-| `/v1/models` | GET  | model list |
-| `/v1/chat/completions` | POST | chat completions |
-| `/v1/images/generations` | POST | image generation |
-| `/v1/images/edits` | POST | image editing |
-| `/health` | GET  | health check |
+| Endpoint                 | Method | Description      |
+| ------------------------ | ------ | ---------------- |
+| `/v1/models`             | GET    | model list       |
+| `/v1/chat/completions`   | POST   | chat completions |
+| `/v1/images/generations` | POST   | image generation |
+| `/v1/images/edits`       | POST   | image editing    |
+| `/health`                | GET    | health check     |
 
 ---
 
-## Community
+## Optional: Tampermonkey Import Helper
 
-Join the Business2API group:
+If you want one-click export of importable account JSON from Gemini Business pages, install the Tampermonkey userscript:
 
-- [https://qm.qq.com/q/yegwCqJisS](https://qm.qq.com/q/yegwCqJisS)
+- Install URL: [gemini-business-import.user.js](https://raw.githubusercontent.com/yukkcat/gemini-business2api/main/tools/tampermonkey/gemini-business-import.user.js)
+- Repository path: `tools/tampermonkey/gemini-business-import.user.js`
+- Click `Copy JSON` to copy; `Shift + Click` to download a JSON file
+- Exported `expires_at` defaults to **current time + 12 hours**
+
+Before use, make sure:
+
+1. Tampermonkey -> **General** -> **Config mode**: `Advanced`
+2. Tampermonkey -> **Security** -> **Allow scripts to access cookies**: `All`
+3. If cookie access is still blocked, enable **Developer mode** on the browser extensions page
+4. Refresh `business.gemini.google` and try again
+
+The script will show a popup reminder when cookie access is unavailable.
 
 ---
-
 ## License
 
 This project uses the **Cooperative Non-Commercial License (CNC-1.0)**.
@@ -246,3 +266,4 @@ This project uses the **Cooperative Non-Commercial License (CNC-1.0)**.
 [![Star History Chart](https://api.star-history.com/svg?repos=yukkcat/gemini-business2api&type=date&legend=top-left)](https://www.star-history.com/#yukkcat/gemini-business2api&type=date&legend=top-left)
 
 **If this project helps you, please give it a ⭐ Star!**
+

@@ -19,9 +19,17 @@
 
 ## 项目定位
 
-Gemini Business2API 是一个把 [Gemini Business](https://business.google.com) 能力转换为 **OpenAI 兼容接口** 的网关服务，内置后台管理面板，适合统一管理账号池、系统设置、图片 / 视频能力与运行状态。
+Gemini Business2API 是一个把 [Gemini Business](https://business.gemini.google) 能力转换为 **OpenAI 兼容接口** 的网关服务，内置后台管理面板，适合统一管理账号池、系统设置、图片 / 视频能力与运行状态。
 
 当前主线目标很明确：**稳定提供 2API 主服务**，把历史上的注册、刷新、实验性链路从主仓库主流程中彻底拆出去。
+
+---
+
+## 联系我们
+
+点击链接加入群聊【Business2API 交流群】：
+
+- [https://qm.qq.com/q/yegwCqJisS](https://qm.qq.com/q/yegwCqJisS)
 
 ---
 
@@ -44,13 +52,13 @@ Gemini Business2API 是一个把 [Gemini Business](https://business.google.com) 
 
 | 模型 ID                  | 识图 | 原生联网 | 文件多模态 | 图片生成 | 视频生成 |
 | ------------------------ | ---- | -------- | ---------- | -------- | -------- |
-| `gemini-auto`            | ✅   | ✅       | ✅         | 可选     | -        |
-| `gemini-2.5-flash`       | ✅   | ✅       | ✅         | 可选     | -        |
-| `gemini-2.5-pro`         | ✅   | ✅       | ✅         | 可选     | -        |
-| `gemini-3-flash-preview` | ✅   | ✅       | ✅         | 可选     | -        |
-| `gemini-3.1-pro-preview` | ✅   | ✅       | ✅         | 可选     | -        |
-| `gemini-imagen`          | ✅   | ✅       | ✅         | ✅       | -        |
-| `gemini-veo`             | ✅   | ✅       | ✅         | -        | ✅       |
+| `gemini-auto`            | ✅    | ✅        | ✅          | 可选     | -        |
+| `gemini-2.5-flash`       | ✅    | ✅        | ✅          | 可选     | -        |
+| `gemini-2.5-pro`         | ✅    | ✅        | ✅          | 可选     | -        |
+| `gemini-3-flash-preview` | ✅    | ✅        | ✅          | 可选     | -        |
+| `gemini-3.1-pro-preview` | ✅    | ✅        | ✅          | 可选     | -        |
+| `gemini-imagen`          | ✅    | ✅        | ✅          | ✅        | -        |
+| `gemini-veo`             | ✅    | ✅        | ✅          | -        | ✅        |
 
 > `gemini-imagen` 为专用图片生成模型，`gemini-veo` 为专用视频生成模型。
 
@@ -229,14 +237,25 @@ Compose 默认挂载：
 
 ---
 
-## 社区交流
+## 可选：油猴导入助手
 
-点击链接加入群聊【Business2API 交流群】：
+如需从 Gemini Business 页面一键复制可导入账号 JSON，可安装 Tampermonkey 用户脚本：
 
-- [https://qm.qq.com/q/yegwCqJisS](https://qm.qq.com/q/yegwCqJisS)
+- 安装地址：[gemini-business-import.user.js](https://raw.githubusercontent.com/yukkcat/gemini-business2api/main/tools/tampermonkey/gemini-business-import.user.js)
+- 仓库位置：`tools/tampermonkey/gemini-business-import.user.js`
+- 点击 `Copy JSON` 复制；`Shift + Click` 下载 JSON 文件
+- 导出的 `expires_at` 默认是**当前时间 + 12 小时**
+
+使用前请先确认：
+
+1. Tampermonkey -> **通用** -> **配置模式**：`高级`
+2. Tampermonkey -> **安全** -> **允许脚本访问 Cookie**：`All`
+3. 如果仍然没有 Cookie 权限，请在浏览器扩展页开启**开发者模式**
+4. 修改后刷新 `business.gemini.google` 页面再试
+
+脚本如果检测不到 Cookie 权限，会直接弹窗提醒上述设置。
 
 ---
-
 ## 许可证
 
 本项目采用 **Cooperative Non-Commercial License (CNC-1.0)**。
@@ -246,3 +265,4 @@ Compose 默认挂载：
 [![Star History Chart](https://api.star-history.com/svg?repos=yukkcat/gemini-business2api&type=date&legend=top-left)](https://www.star-history.com/#yukkcat/gemini-business2api&type=date&legend=top-left)
 
 **如果这个项目对你有帮助，请给个 ⭐ Star！**
+

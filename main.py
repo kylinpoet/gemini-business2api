@@ -274,7 +274,7 @@ logging.basicConfig(
 logger = logging.getLogger("gemini")
 
 # ---------- Linux zombie process reaper ----------
-# DrissionPage / Chromium may spawn subprocesses that exit without being waited on,
+# Some optional browser-related child processes may exit without being waited on,
 # which can accumulate as zombies (<defunct>) in long-running services.
 try:
     from core.child_reaper import install_child_reaper

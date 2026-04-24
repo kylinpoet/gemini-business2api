@@ -467,9 +467,7 @@ async def load_accounts() -> Optional[list]:
     """
     从数据库加载账户配置（如果启用）
 
-    注意：不再自动从 kv_store 迁移
-    如需迁移，请手动运行：python scripts/migrate_to_database.py
-
+    注意：不再自动从 kv_store 迁移，数据库为空时会返回空列表
     返回 None 表示降级到文件存储
     """
     if not is_database_enabled():

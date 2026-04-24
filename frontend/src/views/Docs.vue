@@ -5,34 +5,29 @@
         <div>
           <p class="ui-section-title">帮助中心</p>
           <p class="mt-1 text-xs text-muted-foreground">
-            快速上手与常见问题
+            快速上手、接口示例、油猴导入助手与使用说明。
           </p>
         </div>
       </div>
 
-      <!-- 标签切换 -->
       <div class="ui-segmented mt-6 text-xs">
         <button
           v-for="tab in tabs"
           :key="tab.id"
           class="ui-segmented-btn flex-1 justify-center px-4 py-2"
-          :class="activeTab === tab.id
-            ? 'ui-segmented-btn-active'
-            : ''"
+          :class="activeTab === tab.id ? 'ui-segmented-btn-active' : ''"
           @click="activeTab = tab.id"
         >
           {{ tab.label }}
         </button>
       </div>
 
-      <!-- 内容区域 -->
       <div class="mt-6 space-y-6 text-sm text-foreground">
-        <!-- 使用教程 -->
         <div v-if="activeTab === 'api'" class="space-y-6">
           <div class="space-y-2">
-            <p class="text-sm font-semibold">账户配置格式</p>
+            <p class="text-sm font-semibold">账号配置格式</p>
             <p class="mt-1 text-xs text-muted-foreground">
-              accounts.json 或环境变量 ACCOUNTS_CONFIG 使用的 JSON 数组
+              支持 <code>accounts.json</code>、环境变量 <code>ACCOUNTS_CONFIG</code>，以及后台导入 JSON。
             </p>
             <pre class="mt-3 overflow-x-auto whitespace-pre-wrap rounded-2xl border border-border bg-card px-4 py-3 text-xs font-mono scrollbar-slim">[
   {
@@ -45,75 +40,72 @@
   }
 ]</pre>
             <p class="mt-2 text-xs text-muted-foreground">
-              必填：secure_c_ses / csesidx / config_id。id、host_c_oses、expires_at 可选。
+              必填：<code>secure_c_ses</code> / <code>csesidx</code> / <code>config_id</code>；
+              <code>id</code>、<code>host_c_oses</code>、<code>expires_at</code> 可选。
             </p>
           </div>
 
           <div class="space-y-2">
-            <p class="text-sm font-semibold">API 对话 curl 格式</p>
+            <p class="text-sm font-semibold">API 对话 curl 示例</p>
             <p class="mt-1 text-xs text-muted-foreground">
-              标准的 OpenAI 兼容格式，支持流式和非流式输出。
+              标准 OpenAI 兼容格式，支持流式与非流式输出。
             </p>
-            <div class="mt-3">
-              <pre class="overflow-x-auto whitespace-pre-wrap rounded-2xl border border-border bg-card px-4 py-3 text-xs font-mono scrollbar-slim">curl -X POST "http://localhost:7860/v1/chat/completions" \
+            <pre class="mt-3 overflow-x-auto whitespace-pre-wrap rounded-2xl border border-border bg-card px-4 py-3 text-xs font-mono scrollbar-slim">curl -X POST "http://localhost:7860/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{
     "model": "gemini-2.5-flash",
     "stream": false,
     "temperature": 0.7,
-    "top_p": 1,
     "messages": [
       { "role": "system", "content": "你是一个简洁的助手" },
-      { "role": "user", "content": "你好，介绍一下这个项目" }
+      { "role": "user", "content": "介绍一下这个项目" }
     ]
   }'</pre>
-            </div>
             <p class="mt-2 text-xs text-muted-foreground">
-              如果未设置 API Key，可省略 Authorization。
+              如果未设置 API Key，可省略 <code>Authorization</code>。
             </p>
           </div>
 
           <div class="space-y-2">
-            <p class="text-sm font-semibold">文生图格式（Base64 / URL 输出）</p>
+            <p class="text-sm font-semibold">图片生成示例</p>
             <p class="mt-1 text-xs text-muted-foreground">
-              使用支持文生图的模型，直接给文本提示即可；输出格式由系统设置决定（base64 或 url）。
+              图片生成与编辑支持 URL / Base64 输入，默认输出格式由系统设置控制。
             </p>
-            <pre class="mt-3 overflow-x-auto whitespace-pre-wrap rounded-2xl border border-border bg-card px-4 py-3 text-xs font-mono scrollbar-slim">curl -X POST "http://localhost:7860/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -d '{
-    "model": "gemini-3.1-pro-preview",
-    "stream": true,
-    "temperature": 0.7,
-    "top_p": 1,
-    "messages": [
-      { "role": "user", "content": "生成一只戴着头盔的猫，赛博风格" }
-    ]
-  }'</pre>
-          </div>
-
-          <div class="space-y-2">
-            <p class="text-sm font-semibold">专用图片生成（gemini-imagen）</p>
-            <p class="mt-1 text-xs text-muted-foreground">
-              使用 gemini-imagen 虚拟模型强制启用图片生成功能，输出格式由系统设置决定（base64 或 url）。
-            </p>
-            <pre class="mt-3 overflow-x-auto whitespace-pre-wrap rounded-2xl border border-border bg-card px-4 py-3 text-xs font-mono scrollbar-slim">curl -X POST "http://localhost:7860/v1/chat/completions" \
+            <div class="mt-3 grid gap-3 md:grid-cols-2">
+              <pre class="overflow-x-auto whitespace-pre-wrap rounded-2xl border border-border bg-card px-4 py-3 text-xs font-mono scrollbar-slim">curl -X POST "http://localhost:7860/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{
     "model": "gemini-imagen",
-    "stream": true,
+    "stream": false,
     "messages": [
-      { "role": "user", "content": "生成一只可爱的猫咪，卡通风格" }
+      { "role": "user", "content": "生成一只赛博风格的猫" }
     ]
   }'</pre>
+              <pre class="overflow-x-auto whitespace-pre-wrap rounded-2xl border border-border bg-card px-4 py-3 text-xs font-mono scrollbar-slim">curl -X POST "http://localhost:7860/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "model": "gemini-3-flash-preview",
+    "stream": false,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "把图片改成插画风格" },
+          { "type": "image_url", "image_url": { "url": "https://example.com/cat.png" } }
+        ]
+      }
+    ]
+  }'</pre>
+            </div>
           </div>
 
           <div class="space-y-2">
-            <p class="text-sm font-semibold">专用视频生成（gemini-veo）</p>
+            <p class="text-sm font-semibold">视频生成示例</p>
             <p class="mt-1 text-xs text-muted-foreground">
-              使用 gemini-veo 虚拟模型生成视频，输出格式由系统设置决定（html/url/markdown）。
+              使用 <code>gemini-veo</code> 走统一的对话接口，输出格式由系统设置统一控制。
             </p>
             <pre class="mt-3 overflow-x-auto whitespace-pre-wrap rounded-2xl border border-border bg-card px-4 py-3 text-xs font-mono scrollbar-slim">curl -X POST "http://localhost:7860/v1/chat/completions" \
   -H "Content-Type: application/json" \
@@ -128,164 +120,128 @@
           </div>
 
           <div class="space-y-2">
-            <p class="text-sm font-semibold">图生图格式（Base64 / URL 输入）</p>
-            <p class="mt-1 text-xs text-muted-foreground">
-              content 使用多模态数组，image_url 可填 URL 或 data:base64。
-            </p>
-            <div class="mt-3 grid gap-3 md:grid-cols-2">
-              <pre class="overflow-x-auto whitespace-pre-wrap rounded-2xl border border-border bg-card px-4 py-3 text-xs font-mono scrollbar-slim">curl -X POST "http://localhost:7860/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -d '{
-    "model": "gemini-3-flash-preview",
-    "stream": false,
-    "temperature": 0.7,
-    "top_p": 1,
-    "messages": [
-      {
-        "role": "user",
-        "content": [
-          { "type": "text", "text": "把图片改成插画风格" },
-          { "type": "image_url", "image_url": { "url": "https://example.com/cat.png" } }
-        ]
-      }
-    ]
-  }'</pre>
-              <pre class="overflow-x-auto whitespace-pre-wrap rounded-2xl border border-border bg-card px-4 py-3 text-xs font-mono scrollbar-slim">curl -X POST "http://localhost:7860/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -d '{
-    "model": "gemini-3-flash-preview",
-    "stream": false,
-    "temperature": 0.7,
-    "top_p": 1,
-    "messages": [
-      {
-        "role": "user",
-        "content": [
-          { "type": "text", "text": "增强画面细节" },
-          { "type": "image_url", "image_url": { "url": "data:image/png;base64,AAA..." } }
-        ]
-      }
-    ]
-  }'</pre>
-            </div>
-          </div>
-
-          <div class="space-y-2">
-            <p class="text-sm font-semibold">读文件格式（URL / Base64）</p>
-            <p class="mt-1 text-xs text-muted-foreground">
-              适用于 PDF/图片/文本等可读文件，Word/PPT 等可能不支持会被提示转换。大部分文件都可能支持，建议自行测试。
-            </p>
-            <div class="mt-3 grid gap-3 md:grid-cols-2">
-              <pre class="overflow-x-auto whitespace-pre-wrap rounded-2xl border border-border bg-card px-4 py-3 text-xs font-mono scrollbar-slim">curl -X POST "http://localhost:7860/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -d '{
-    "model": "gemini-2.5-pro",
-    "stream": false,
-    "temperature": 0.7,
-    "top_p": 1,
-    "messages": [
-      {
-        "role": "user",
-        "content": [
-          { "type": "text", "text": "读取并总结这个文件" },
-          { "type": "image_url", "image_url": { "url": "https://example.com/doc.pdf" } }
-        ]
-      }
-    ]
-  }'</pre>
-              <pre class="overflow-x-auto whitespace-pre-wrap rounded-2xl border border-border bg-card px-4 py-3 text-xs font-mono scrollbar-slim">curl -X POST "http://localhost:7860/v1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -d '{
-    "model": "gemini-2.5-pro",
-    "stream": false,
-    "temperature": 0.7,
-    "top_p": 1,
-    "messages": [
-      {
-        "role": "user",
-        "content": [
-          { "type": "text", "text": "读取并摘要" },
-          { "type": "image_url", "image_url": { "url": "data:application/pdf;base64,AAA..." } }
-        ]
-      }
-    ]
-  }'</pre>
+            <p class="text-sm font-semibold">常用接口</p>
+            <div class="overflow-x-auto rounded-2xl border border-border bg-card">
+              <table class="min-w-full text-left text-xs">
+                <thead class="bg-muted/40 text-muted-foreground">
+                  <tr>
+                    <th class="px-4 py-3 font-medium">Endpoint</th>
+                    <th class="px-4 py-3 font-medium">Method</th>
+                    <th class="px-4 py-3 font-medium">说明</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="endpoint in endpoints" :key="endpoint.path" class="border-t border-border">
+                    <td class="px-4 py-3 font-mono text-[11px]">{{ endpoint.path }}</td>
+                    <td class="px-4 py-3">{{ endpoint.method }}</td>
+                    <td class="px-4 py-3 text-muted-foreground">{{ endpoint.description }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
 
-        <!-- 使用声明 -->
-        <div v-if="activeTab === 'disclaimer'" class="space-y-6">
+        <div v-else-if="activeTab === 'helper'" class="space-y-6">
           <div class="space-y-2">
-            <p class="text-sm font-semibold">使用声明与免责条款</p>
-            <div class="mt-3 space-y-3 text-xs text-muted-foreground leading-relaxed">
-              <div class="rounded-2xl border border-rose-200 bg-rose-50 p-4">
-                <p class="font-medium text-rose-600">⚠️ 严禁滥用：禁止将本工具用于商业用途或任何形式的滥用（无论规模大小）</p>
-              </div>
-
-              <div class="rounded-2xl border border-border bg-muted/30 p-4">
-                <p class="font-medium text-foreground">本工具严禁用于以下行为：</p>
-                <ul class="mt-2 space-y-1 pl-4">
-                  <li>• 商业用途或盈利性使用</li>
-                  <li>• 任何形式的批量操作或自动化滥用（无论规模大小）</li>
-                  <li>• 破坏市场秩序或恶意竞争</li>
-                  <li>• 违反 Google 服务条款的任何行为</li>
-                  <li>• 违反 Microsoft 服务条款的任何行为</li>
-                </ul>
-              </div>
-
-              <div class="rounded-2xl border border-border bg-muted/30 p-4">
-                <p class="font-medium text-foreground">违规后果</p>
-                <p class="mt-2">滥用行为可能导致账号永久封禁、法律追责，一切后果由使用者自行承担。</p>
-              </div>
-
-              <div class="rounded-2xl border border-border bg-muted/30 p-4">
-                <p class="font-medium text-foreground">📖 合法用途</p>
-                <p class="mt-2">本项目仅限于以下场景：</p>
-                <ul class="mt-2 space-y-1 pl-4">
-                  <li>• 个人学习与技术研究</li>
-                  <li>• 浏览器自动化技术探索</li>
-                  <li>• 非商业性技术交流</li>
-                </ul>
-              </div>
-
-              <div class="rounded-2xl border border-border bg-muted/30 p-4">
-                <p class="font-medium text-foreground">⚖️ 法律责任</p>
-                <ul class="mt-2 space-y-2 pl-4">
-                  <li><strong>使用者责任：</strong>使用本工具产生的一切后果（包括但不限于账号封禁、数据损失、法律纠纷）由使用者完全承担</li>
-                  <li><strong>合规义务：</strong>使用者必须遵守所在地法律法规及第三方服务条款（包括但不限于 Google Workspace、Microsoft 365 等服务条款）</li>
-                  <li><strong>作者免责：</strong>作者不对任何违规使用、滥用行为或由此产生的后果承担责任</li>
-                </ul>
-              </div>
-
-              <div class="rounded-2xl border border-border bg-muted/30 p-4">
-                <p class="font-medium text-foreground">📋 技术声明</p>
-                <ul class="mt-2 space-y-1 pl-4">
-                  <li>• <strong>无担保：</strong>本项目按"现状"提供，不提供任何形式的担保</li>
-                  <li>• <strong>第三方依赖：</strong>依赖的第三方服务（如 DuckMail API、Microsoft Graph API 等）可用性不受作者控制</li>
-                  <li>• <strong>维护权利：</strong>作者保留随时停止维护、变更功能或关闭项目的权利</li>
-                </ul>
-              </div>
-
-              <div class="rounded-2xl border border-border bg-muted/30 p-4">
-                <p class="font-medium text-foreground">🔗 相关服务条款</p>
-                <p class="mt-2">使用本工具时，您必须同时遵守以下第三方服务的条款：</p>
-                <ul class="mt-2 space-y-1 pl-4">
-                  <li>• <a href="https://policies.google.com/terms" target="_blank" class="text-primary hover:underline">Google 服务条款</a></li>
-                  <li>• <a href="https://workspace.google.com/terms/service-terms.html" target="_blank" class="text-primary hover:underline">Google Workspace 附加条款</a></li>
-                  <li>• <a href="https://www.microsoft.com/servicesagreement" target="_blank" class="text-primary hover:underline">Microsoft 服务协议</a></li>
-                  <li>• <a href="https://www.microsoft.com/licensing/terms" target="_blank" class="text-primary hover:underline">Microsoft 365 使用条款</a></li>
+            <p class="text-sm font-semibold">油猴导入助手</p>
+            <p class="mt-1 text-xs text-muted-foreground">
+              用于从 Gemini Business 页面一键复制可导入账号 JSON。
+            </p>
+            <div class="grid gap-3 md:grid-cols-2">
+              <div class="rounded-2xl border border-border bg-card p-4">
+                <p class="font-medium text-foreground">安装位置</p>
+                <ul class="mt-3 space-y-2 text-xs text-muted-foreground">
+                  <li>
+                    安装地址：
+                    <a :href="tampermonkeyUrl" target="_blank" rel="noreferrer" class="text-primary hover:underline">
+                      gemini-business-import.user.js
+                    </a>
+                  </li>
+                  <li>仓库路径：<code>tools/tampermonkey/gemini-business-import.user.js</code></li>
+                  <li>点击 <code>Copy JSON</code> 复制；<code>Shift + Click</code> 下载 JSON</li>
+                  <li>导出的 <code>expires_at</code> 默认是当前时间 + 12 小时</li>
                 </ul>
               </div>
 
               <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                <p class="font-medium text-amber-700">使用本工具即表示您已阅读、理解并同意遵守以上所有条款。</p>
+                <p class="font-medium text-amber-700">使用前必须检查</p>
+                <ol class="mt-3 space-y-2 text-xs leading-relaxed text-amber-800">
+                  <li>1. Tampermonkey → 通用 → 配置模式：<code>高级</code></li>
+                  <li>2. Tampermonkey → 安全 → 允许脚本访问 Cookie：<code>All</code></li>
+                  <li>3. 如果仍然没有权限，请在浏览器扩展页开启<strong>开发者模式</strong></li>
+                  <li>4. 修改后刷新 <code>business.gemini.google</code> 页面再试</li>
+                </ol>
               </div>
             </div>
+          </div>
+
+          <div class="space-y-2">
+            <p class="text-sm font-semibold">导入流程</p>
+            <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div v-for="step in helperSteps" :key="step.title" class="rounded-2xl border border-border bg-card p-4">
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{{ step.index }}</p>
+                <p class="mt-2 text-sm font-medium text-foreground">{{ step.title }}</p>
+                <p class="mt-2 text-xs leading-relaxed text-muted-foreground">{{ step.description }}</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2">
+            <p class="text-sm font-semibold">复制出的 JSON 示例</p>
+            <pre class="mt-3 overflow-x-auto whitespace-pre-wrap rounded-2xl border border-border bg-card px-4 py-3 text-xs font-mono scrollbar-slim">[
+  {
+    "id": "you@example.com",
+    "secure_c_ses": "CSE.Ad...",
+    "csesidx": "498...",
+    "config_id": "0cd...",
+    "host_c_oses": "",
+    "expires_at": "2026-04-25 12:00:00"
+  }
+]</pre>
+            <p class="mt-2 text-xs text-muted-foreground">
+              后台账号管理支持直接粘贴这类 JSON，也支持逐行文本导入。
+            </p>
+          </div>
+        </div>
+
+        <div v-else class="space-y-6">
+          <div class="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+            <p class="font-medium text-rose-700">非商业用途提醒</p>
+            <p class="mt-2 text-xs leading-relaxed text-rose-700">
+              本项目采用 CNC-1.0 协议，当前主线定位为 2API 主服务与管理后台，不包含注册机等旧链路。
+            </p>
+          </div>
+
+          <div class="grid gap-3 md:grid-cols-2">
+            <div class="rounded-2xl border border-border bg-card p-4">
+              <p class="font-medium text-foreground">适用场景</p>
+              <ul class="mt-3 space-y-2 text-xs leading-relaxed text-muted-foreground">
+                <li>• 个人学习与技术研究</li>
+                <li>• 浏览器自动化与接口兼容性测试</li>
+                <li>• 非商业技术交流</li>
+              </ul>
+            </div>
+
+            <div class="rounded-2xl border border-border bg-card p-4">
+              <p class="font-medium text-foreground">请同时遵守</p>
+              <ul class="mt-3 space-y-2 text-xs leading-relaxed text-muted-foreground">
+                <li>• Google 服务条款</li>
+                <li>• Google Workspace 附加条款</li>
+                <li>• Microsoft 服务协议</li>
+                <li>• 相关邮箱服务商条款</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="rounded-2xl border border-border bg-card p-4">
+            <p class="font-medium text-foreground">联系我们</p>
+            <p class="mt-2 text-xs text-muted-foreground">
+              Business2API 交流群：
+              <a :href="communityUrl" target="_blank" rel="noreferrer" class="text-primary hover:underline">
+                {{ communityUrl }}
+              </a>
+            </p>
           </div>
         </div>
       </div>
@@ -296,10 +252,46 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 
-const activeTab = ref('api')
+type TabId = 'api' | 'helper' | 'disclaimer'
 
-const tabs = [
+const activeTab = ref<TabId>('api')
+const tampermonkeyUrl = 'https://raw.githubusercontent.com/yukkcat/gemini-business2api/main/tools/tampermonkey/gemini-business-import.user.js'
+const communityUrl = 'https://qm.qq.com/q/yegwCqJisS'
+
+const tabs: Array<{ id: TabId; label: string }> = [
   { id: 'api', label: 'API 文档' },
-  { id: 'disclaimer', label: '使用声明' },
+  { id: 'helper', label: '导入助手' },
+  { id: 'disclaimer', label: '使用说明' },
+]
+
+const endpoints = [
+  { path: '/v1/models', method: 'GET', description: '模型列表' },
+  { path: '/v1/chat/completions', method: 'POST', description: '对话补全 / 图片 / 视频统一入口' },
+  { path: '/v1/images/generations', method: 'POST', description: '图片生成' },
+  { path: '/v1/images/edits', method: 'POST', description: '图片编辑' },
+  { path: '/health', method: 'GET', description: '健康检查' },
+]
+
+const helperSteps = [
+  {
+    index: 'STEP 1',
+    title: '安装脚本',
+    description: '先安装 Tampermonkey，再打开脚本地址完成安装。',
+  },
+  {
+    index: 'STEP 2',
+    title: '打开权限',
+    description: '把配置模式改为高级，并允许脚本访问 Cookie。',
+  },
+  {
+    index: 'STEP 3',
+    title: '进入页面',
+    description: '打开 business.gemini.google 的有效业务页面，确保页面里能读到 csesidx / config_id。',
+  },
+  {
+    index: 'STEP 4',
+    title: '导入后台',
+    description: '复制或下载 JSON 后，到账号管理页面直接粘贴导入。',
+  },
 ]
 </script>

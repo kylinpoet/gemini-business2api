@@ -1,11 +1,15 @@
-// ==UserScript==
+﻿// ==UserScript==
 // @name         Gemini Business Import JSON Helper
-// @version      2.1.0
+// @namespace    https://github.com/yukkcat/gemini-business2api
+// @version      2.2.0
 // @description  Copy import-ready gemini-business2api account JSON. Shift+Click downloads a file.
 // @match        https://business.gemini.google/*
 // @grant        GM_addStyle
 // @grant        GM_cookie
 // @grant        GM_setClipboard
+// @downloadURL  https://raw.githubusercontent.com/yukkcat/gemini-business2api/main/tools/tampermonkey/gemini-business-import.user.js
+// @updateURL    https://raw.githubusercontent.com/yukkcat/gemini-business2api/main/tools/tampermonkey/gemini-business-import.user.js
+// @homepageURL  https://github.com/yukkcat/gemini-business2api
 // ==/UserScript==
 
 (function () {
@@ -16,7 +20,17 @@
   const COPY_LABEL = 'Copied';
   const DOWNLOAD_LABEL = 'Saved';
   const ERROR_LABEL = 'Error';
-  const DEFAULT_TITLE = 'Click to copy import-ready JSON. Shift+Click downloads a file.';
+  const SETUP_LABEL = 'Setup';
+  const DEFAULT_TITLE = 'Copy import-ready JSON (expires in 12h). Shift+Click downloads a file.';
+  const SETUP_TITLE = '需要先开启 Tampermonkey Cookie 权限';
+  const ACCOUNT_EXPIRE_HOURS = 12;
+  const SETUP_GUIDE = [
+    '脚本需要 Cookie 权限后才能读取账号信息。',
+    '1. Tampermonkey -> 通用 -> 配置模式：高级',
+    '2. Tampermonkey -> 安全 -> 允许脚本访问 Cookie：All',
+    '3. 如果仍然没有权限，请在浏览器扩展页开启开发者模式',
+    '4. 修改后刷新 business.gemini.google 页面再重试',
+  ];
 
   GM_addStyle(`
     #${BUTTON_ID} {
@@ -81,9 +95,8 @@
     }, 1600);
   };
 
-  const formatTime = (timestamp) => {
-    if (!timestamp) return '';
-    const date = new Date((timestamp - 43200) * 1000);
+  const buildExpireAt = () => {
+    const date = new Date(Date.now() + ACCOUNT_EXPIRE_HOURS * 60 * 60 * 1000);
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
   };
 
@@ -137,10 +150,16 @@
     document.body.removeChild(textarea);
   };
 
+  const showSetupGuide = (reason = '') => {
+    const lines = reason ? [`原因：${reason}`, ...SETUP_GUIDE] : SETUP_GUIDE;
+    flashButtonState(SETUP_LABEL, '#f59e0b', SETUP_TITLE);
+    window.alert(lines.join('\n'));
+  };
+
   const getEmail = () => {
     let email = localStorage.getItem('gemini_user_email');
     if (!email) {
-      email = window.prompt('Enter the account email to build import JSON:', '') || '';
+      email = window.prompt('请输入要导入的账号邮箱：', '') || '';
       email = email.trim();
       if (email) {
         localStorage.setItem('gemini_user_email', email);
@@ -149,7 +168,17 @@
     return email?.trim() || '';
   };
 
+  const hasCookieApi = typeof GM_cookie === 'function';
+  if (!hasCookieApi) {
+    setButtonState(SETUP_LABEL, '#f59e0b', SETUP_TITLE);
+  }
+
   button.addEventListener('click', (event) => {
+    if (!hasCookieApi) {
+      showSetupGuide('当前脚本无法访问 GM_cookie。');
+      return;
+    }
+
     const pathParts = window.location.pathname.split('/');
     const cidIndex = pathParts.indexOf('cid');
     const configId = (cidIndex !== -1 && pathParts[cidIndex + 1]) || '';
@@ -157,10 +186,23 @@
     const email = getEmail();
     const shouldDownload = event.shiftKey === true;
 
+    if (!email) {
+      flashButtonState(ERROR_LABEL, '#d93025', '请输入邮箱后重试');
+      window.alert('请输入账号邮箱后再试。');
+      return;
+    }
+
+    if (!configId || !csesidx) {
+      flashButtonState(ERROR_LABEL, '#d93025', '当前页面缺少导入参数');
+      window.alert('未读取到 config_id 或 csesidx，请在 Gemini Business 的有效业务页面使用此脚本。');
+      return;
+    }
+
     GM_cookie('list', {}, async (cookies, error) => {
       try {
-        if (error || !configId || !csesidx || !email) {
-          throw new Error('Missing config_id / csesidx / email.');
+        if (error) {
+          showSetupGuide('读取 Cookie 失败。');
+          return;
         }
 
         const hostCOses = (cookies.find((cookie) => cookie.name === '__Host-C_OSES') || {}).value || '';
@@ -168,7 +210,8 @@
         const secureCSes = sesCookie.value || '';
 
         if (!secureCSes) {
-          throw new Error('Unable to read __Secure-C_SES cookie.');
+          showSetupGuide('未读取到 __Secure-C_SES。若已登录，请优先检查 Cookie 权限设置。');
+          return;
         }
 
         const payload = buildImportJson(
@@ -178,7 +221,7 @@
             configId,
             secureCSes,
             hostCOses,
-            expiresAt: formatTime(sesCookie.expirationDate),
+            expiresAt: buildExpireAt(),
           }),
         );
 
