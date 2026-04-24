@@ -10,6 +10,8 @@
 
 <p align="center">Focused on the 2API main service, admin panel, and optional refresh-worker.</p>
 
+<p align="center">Current stable release: <strong>v0.3.0</strong> | <a href="https://github.com/yukkcat/gemini-business2api/releases/tag/v0.3.0">Release Notes</a> | <a href="https://github.com/yukkcat/gemini-business2api/releases">All Releases</a></p>
+
 ---
 
 ## Project Positioning
@@ -85,6 +87,7 @@ flowchart TB
 
 This reflects the current mainline design:
 
+- **Current stable release line**: `main` and `beta` are both aligned to `v0.3.0`
 - **Two entry points**: admin panel users and OpenAI-compatible clients
 - **Admin pages** go through a unified management API layer
 - **The 2API gateway path** handles chat, model, image, and video compatibility
@@ -155,10 +158,22 @@ The mainline now uses `deploy/install.sh`.
 curl -fsSL https://raw.githubusercontent.com/yukkcat/gemini-business2api/main/deploy/install.sh | sudo bash
 ```
 
+To pin the current stable release `v0.3.0`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yukkcat/gemini-business2api/v0.3.0/deploy/install.sh | sudo bash
+```
+
 Enable refresh-worker:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yukkcat/gemini-business2api/main/deploy/install.sh | sudo bash -s -- --with-refresh
+```
+
+To pin the current stable release and enable refresh-worker:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yukkcat/gemini-business2api/v0.3.0/deploy/install.sh | sudo bash -s -- --with-refresh
 ```
 
 The installer supports two paths:

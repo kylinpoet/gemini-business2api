@@ -10,6 +10,8 @@
 
 <p align="center">聚焦 2API 主服务、管理后台与可选 refresh-worker。</p>
 
+<p align="center">当前稳定版本：<strong>v0.3.0</strong> | <a href="https://github.com/yukkcat/gemini-business2api/releases/tag/v0.3.0">发布说明</a> | <a href="https://github.com/yukkcat/gemini-business2api/releases">全部版本</a></p>
+
 ---
 
 ## 项目定位
@@ -85,6 +87,7 @@ flowchart TB
 
 这个图对应当前主线设计：
 
+- **当前稳定发布线**：`main` / `beta` 当前都对齐 `v0.3.0`
 - **前台入口**分为两类：管理后台用户、OpenAI 兼容客户端
 - **后台页面功能**统一走后台管理接口
 - **2API 网关链路**负责对话、模型、图片、视频等 OpenAI 兼容能力
@@ -155,10 +158,22 @@ docker compose --profile refresh up -d
 curl -fsSL https://raw.githubusercontent.com/yukkcat/gemini-business2api/main/deploy/install.sh | sudo bash
 ```
 
+如需锁定当前正式版 `v0.3.0`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yukkcat/gemini-business2api/v0.3.0/deploy/install.sh | sudo bash
+```
+
 启用 refresh-worker：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yukkcat/gemini-business2api/main/deploy/install.sh | sudo bash -s -- --with-refresh
+```
+
+如需锁定当前正式版并启用 refresh-worker：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yukkcat/gemini-business2api/v0.3.0/deploy/install.sh | sudo bash -s -- --with-refresh
 ```
 
 脚本支持两条路径：
